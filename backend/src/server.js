@@ -9,11 +9,14 @@ const PORT = process.env.PORT || 5001;
 
 const app = express();
 
-connectDB();
+app.use(express.json());
 
 app.use("/api/tasks", tasksRoute);
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+connectDB().then(() => {
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
 });
+
 

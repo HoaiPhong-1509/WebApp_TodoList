@@ -12,7 +12,7 @@ const taskSchema = new mongoose.Schema(
             enum: ["active", "completed"],
             default: "active"
         },
-        compleredAt: {
+        completedAt: {
             type: Date,
             default: null
         },
