@@ -1,18 +1,78 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Calendar, CheckCircle2, Circle, SquarePen, Trash2 } from 'lucide-react';
 import { Input } from './ui/input';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import api from '@/lib/axios';
 
-const TaskCard = ({task, index}) => {
-  let isEditing = false;
 
+const TaskCard = ({ task, index, handleTaskChanged }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [updateTaskTitle, setUpdateTaskTitle] = useState(task.title || '');
+
+  const deleteTask = async (taskId) => {
+    try {
+      await api.delete(`/tasks/${taskId}`);
+      toast.success('Task deleted successfully');
+      handleTaskChanged?.();
+
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      toast.error('Failed to delete task.');
+    }
+  };
+
+  const updateTask = async () => {
+    try {
+      setIsEditing(false);
+      await api.put(`/tasks/${task._id}`, { 
+        title: updateTaskTitle 
+      });
+      toast.success('Task updated successfully');
+      handleTaskChanged();
+    } catch (error) {
+      console.error('Error updating task:', error);
+      toast.error('Failed to update task.');
+    }
+  };
+
+  const toggleTaskCompleteButton = async () => {
+    try {
+      if (task.status === 'active') {
+        await api.put(`/tasks/${task._id}`, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        });
+
+        toast.success(`${task.title} has been completed`);
+      }
+      else {
+        await api.put(`/tasks/${task._id}`, {
+          status: 'active',
+          completedAt: null,
+        });
+        toast.success(`${task.title} has been marked as active`);
+      }
+
+      handleTaskChanged();
+    } catch (error) {
+      console.error('Error updating task:', error);
+      toast.error('Failed to update task.');
+    }
+  }
+
+  const handleKeyPress = async (e) => {
+    if (e.key === 'Enter') {
+      updateTask();
+    }
+  };
 
   return (
     <Card className={cn(
       'p-4 bg-gradient-card border-0 shadow-custom-md hover:shadow-custom-lg transition-all duration-200 animate-fade-in group',
-      task.status == 'complete' && 'opacity-75'
+      task.status === 'completed' && 'opacity-75'
     )}
       style = {{animationDelay: `${index * 50}ms`}}
     >
@@ -23,11 +83,12 @@ const TaskCard = ({task, index}) => {
         size='icon'
         className={cn(
           'flex-shrink-0 size-8 rounded-full transition-all duration-200',
-          task.status === 'complete' ? 'text-success hover:text-success/80'
+          task.status === 'completed' ? 'text-success hover:text-success/80'
           : 'text-muted-foreground hover:text-primary'
         )}
+        onClick={toggleTaskCompleteButton}
       >
-        {task.status === 'complete' ? (
+        {task.status === 'completed' ? (
           <CheckCircle2 className='size-5'/>
         ) : (
           <Circle className='size-5'/>
@@ -41,12 +102,18 @@ const TaskCard = ({task, index}) => {
             placeholder='Edit task...'
             className='flex-1 h-12 text-base border-border/50 focus:border-primary/50 focus:ring-primary/20'
             type ='text'
+            value={updateTaskTitle}
+            onChange={(e) => setUpdateTaskTitle(e.target.value)}
+            onKeyPress={handleKeyPress}
+            onBlur={() => {
+              setUpdateTaskTitle(task.title || '');
+            }}
           />
         ) : (
           <p
           className={cn(
             'text-base transition-all duration-200',
-            task.status === 'complete' ?
+            task.status === 'completed' ?
             'line-through text-muted-foreground' :
             'text-foreground'
           )}
@@ -81,6 +148,10 @@ const TaskCard = ({task, index}) => {
             variant='ghost'
             size='icon'
             className='flex-shrink-0 transition-colors size-8 text-muted-foreground hover:text-info'
+            onClick={() => {
+              setIsEditing(!isEditing)
+              setUpdateTaskTitle(task.title || '');
+            }}
           >
             <SquarePen className='size-4'/>
           </Button>
@@ -90,6 +161,7 @@ const TaskCard = ({task, index}) => {
             variant='ghost'
             size='icon'
             className='flex-shrink-0 transition-colors size-8 text-muted-foreground hover:text-destructive'
+            onClick={() => deleteTask(task._id)}
           >
             <Trash2 className='size-4'/>
           </Button>

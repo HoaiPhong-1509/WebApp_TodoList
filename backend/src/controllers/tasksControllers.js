@@ -1,8 +1,36 @@
 import Task from "../models/Task.js";
 
 export const getAllTasks = async (req, res) => {
+    const { filter = 'today' } = req.query;
+    const now = new Date();
+    let startDate;
+
+    switch (filter) {
+        case 'today':{
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            break;
+        }
+        case 'week': {
+            const dayOfWeek = now.getDay();
+            const diffFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffFromMonday);
+            break;
+        }
+        case 'month': {
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            break;
+        }
+        case 'all':
+        default:{
+            startDate = new Date(0);
+        }
+    };
+
+    const query = startDate ? { createdAt: { $gte: startDate } } : {}; 
+
     try {
         const result = await Task.aggregate([
+            { $match: query },
             {
                 $facet: {
                     tasks: [{$sort: { createdAt: -1 }}],
