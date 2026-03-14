@@ -5,6 +5,8 @@ import { Button } from './ui/button'
 import { Plus } from 'lucide-react'
 
 const AddTask = () => {
+  const [newTaskTitle, setNewTaskTitle] = useState("")
+
   return (
     <Card className='p-6 border-0 bg-gradient-cart shadow-custom-lg'>
       <div className='flex flex-col gap-3 sm:flex-row'>
@@ -12,6 +14,8 @@ const AddTask = () => {
           type='text'
           placeholder='Enter task title'
           className='h-12 text-base bg-slate-50 sm:flex-1 border-border/50 focus:border-primary/50 focus:ring-primary/20'
+          value={newTaskTitle}
+          onChange={(e) => setNewTaskTitle(e.target.value)}
         />
 
         <Button
