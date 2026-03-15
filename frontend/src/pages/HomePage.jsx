@@ -1,5 +1,6 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import AddTask from '@/components/AddTask';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import StatsAndFilters from '@/components/StatsAndFilters';
 import TaskListPagination from '@/components/TaskListPagination';
@@ -9,8 +10,12 @@ import Footer from '@/components/Footer';
 import { toast } from 'sonner';
 import api from '@/lib/axios';
 import { visibleTaskLimit } from '@/lib/data';
+import { useAuth } from '@/hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
 
 const HomePage = () => {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [taskBuffer, setTaskBuffer] = useState([]);
   const [activeTaskCount, setActiveTaskCount] = useState(0);
   const [completedTaskCount, setCompletedTaskCount] = useState(0);
@@ -18,15 +23,7 @@ const HomePage = () => {
   const [dateQuery, setDateQuery] = useState('today');
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    fetchTasks();
-  }, [dateQuery]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [filter, dateQuery]);
-
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     try {
 
       const res = await api.get(`/tasks?filter=${dateQuery}`);
@@ -38,10 +35,24 @@ const HomePage = () => {
       console.error('Error fetching tasks:', error);
       toast.error('Failed to fetch tasks. Please try again later.');
     }
-  };
+  }, [dateQuery]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter, dateQuery]);
 
   const handleTaskChanged = () => {
     fetchTasks();
+  };
+
+  const handleLogout = () => {
+    logout();
+    toast.success('Logged out successfully');
+    navigate('/login');
   };
 
   const handleNext = () => {
@@ -99,7 +110,7 @@ const HomePage = () => {
       <div className='w-full max-w-2xl p-6 mx-auto space-y-6'>
 
         {/* Đầu trang */}
-        <Header/>
+        <Header userName={user?.name || user?.email || 'User'} onLogout={handleLogout} />
 
         {/* Tạo nhiệm vụ */}
         <AddTask

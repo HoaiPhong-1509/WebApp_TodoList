@@ -4,6 +4,7 @@ export const getAllTasks = async (req, res) => {
     const { filter = 'today' } = req.query;
     const now = new Date();
     let startDate;
+    const userId = req.user._id;
 
     switch (filter) {
         case 'today':{
@@ -26,7 +27,10 @@ export const getAllTasks = async (req, res) => {
         }
     };
 
-    const query = startDate ? { createdAt: { $gte: startDate } } : {}; 
+    const query = {
+        user: userId,
+        ...(startDate ? { createdAt: { $gte: startDate } } : {}),
+    };
 
     try {
         const result = await Task.aggregate([
@@ -54,7 +58,15 @@ export const getAllTasks = async (req, res) => {
 export const createTask = async (req, res) => {
     try {
         const {title} = req.body;
-        const task = new Task({title});
+
+        if (!title || !title.trim()) {
+            return res.status(400).json({ message: "Task title is required" });
+        }
+
+        const task = new Task({
+            user: req.user._id,
+            title: title.trim(),
+        });
 
         const newTask = await task.save();
         res.status(201).json(newTask);
@@ -68,14 +80,24 @@ export const createTask = async (req, res) => {
 export const updateTask = async (req, res) => {
     try {
         const { title, status, completedAt } = req.body;
-        const updateTask = await Task.findByIdAndUpdate(
-            req.params.id,
-            {
-                title,
-                status,
-                completedAt
-        },
-        { new : true}   
+        const updates = {};
+
+        if (typeof title === "string") {
+            updates.title = title.trim();
+        }
+
+        if (typeof status === "string") {
+            updates.status = status;
+        }
+
+        if (completedAt === null || typeof completedAt === "string") {
+            updates.completedAt = completedAt;
+        }
+
+        const updateTask = await Task.findOneAndUpdate(
+            { _id: req.params.id, user: req.user._id },
+            updates,
+            { new : true}   
         );
 
         if (!updateTask) {
@@ -90,7 +112,7 @@ export const updateTask = async (req, res) => {
 
 export const deleteTask = async (req, res) => {
     try {
-        const deleteTask = await Task.findByIdAndDelete(req.params.id);
+        const deleteTask = await Task.findOneAndDelete({ _id: req.params.id, user: req.user._id });
 
         if (!deleteTask) {
             return res.status(404).json({ message: "Task not found" });
