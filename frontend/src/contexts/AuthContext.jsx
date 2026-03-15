@@ -42,6 +42,11 @@ export const AuthProvider = ({ children }) => {
     return res.data.user;
   };
 
+  const resendVerification = async (payload) => {
+    const res = await api.post("/auth/resend-verification", payload);
+    return res.data;
+  };
+
   const logout = () => {
     clearAuthToken();
     setUser(null);
@@ -53,6 +58,7 @@ export const AuthProvider = ({ children }) => {
       isLoading,
       register,
       login,
+      resendVerification,
       logout,
     }),
     [user, isLoading]

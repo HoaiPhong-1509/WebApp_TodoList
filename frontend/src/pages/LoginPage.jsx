@@ -8,9 +8,11 @@ import { useAuth } from "@/hooks/useAuth";
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, resendVerification } = useAuth();
   const [form, setForm] = useState({ email: "", password: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showResend, setShowResend] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   const onChange = (event) => {
     setForm((prev) => ({ ...prev, [event.target.name]: event.target.value }));
@@ -27,12 +29,35 @@ const LoginPage = () => {
     try {
       setIsSubmitting(true);
       await login({ email: form.email, password: form.password });
+      setShowResend(false);
       toast.success("Login successful");
       navigate("/");
     } catch (error) {
-      toast.error(error.response?.data?.message || "Login failed");
+      const message = error.response?.data?.message || "Login failed";
+      toast.error(message);
+      setShowResend(
+        error.response?.status === 403 &&
+          /verify your email/i.test(message)
+      );
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!form.email.trim()) {
+      toast.error("Please enter your email first");
+      return;
+    }
+
+    try {
+      setIsResending(true);
+      const result = await resendVerification({ email: form.email });
+      toast.success(result.message || "Verification email has been resent");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to resend verification email");
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -73,6 +98,23 @@ const LoginPage = () => {
           <Button type="submit" variant="gradient" size="xl" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? "Signing in..." : "Login"}
           </Button>
+
+          {showResend && (
+            <div className="rounded-md border border-border/70 bg-background/70 p-3 text-sm">
+              <p className="mb-2 text-muted-foreground">
+                Your account is not verified yet. We can resend the verification email.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleResendVerification}
+                disabled={isResending}
+              >
+                {isResending ? "Resending..." : "Resend Verification Email"}
+              </Button>
+            </div>
+          )}
         </form>
 
         <p className="text-center text-sm text-muted-foreground">

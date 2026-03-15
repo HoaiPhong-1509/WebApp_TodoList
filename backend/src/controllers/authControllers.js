@@ -8,6 +8,17 @@ const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 const getAuthSecret = () => process.env.JWT_SECRET || "dev_secret_change_me";
 
+const createVerificationTokenPair = () => {
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+  return {
+    rawToken,
+    hashedToken,
+    expiresAt: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
+  };
+};
+
 const toAuthResponse = (user) => {
   const token = createAuthToken(
     {
@@ -56,19 +67,15 @@ export const register = async (req, res) => {
       return res.status(409).json({ message: "Email is already in use" });
     }
 
-    const rawVerificationToken = crypto.randomBytes(32).toString("hex");
-    const hashedVerificationToken = crypto
-      .createHash("sha256")
-      .update(rawVerificationToken)
-      .digest("hex");
+    const verification = createVerificationTokenPair();
 
     const user = await User.create({
       name: name.trim(),
       email: normalizedEmail,
       password: hashPassword(password),
       isVerified: false,
-      verificationToken: hashedVerificationToken,
-      verificationTokenExpiresAt: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
+      verificationToken: verification.hashedToken,
+      verificationTokenExpiresAt: verification.expiresAt,
     });
 
     let emailResult;
@@ -76,7 +83,7 @@ export const register = async (req, res) => {
       emailResult = await sendVerificationEmail({
         email: user.email,
         name: user.name,
-        token: rawVerificationToken,
+        token: verification.rawToken,
       });
 
       console.info("[auth][register] verification email sent", {
@@ -171,5 +178,56 @@ export const verifyEmail = async (req, res) => {
   } catch (error) {
     console.error("Error verifying email:", error);
     return res.status(500).json({ message: "Server error while verifying email" });
+  }
+};
+
+export const resendVerificationEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!isValidEmailFormat(normalizedEmail)) {
+      return res.status(400).json({ message: "Invalid email format" });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user || user.isVerified) {
+      return res.status(200).json({
+        message: "If this email exists and is not verified, a verification email has been sent.",
+      });
+    }
+
+    const verification = createVerificationTokenPair();
+    user.verificationToken = verification.hashedToken;
+    user.verificationTokenExpiresAt = verification.expiresAt;
+    await user.save();
+
+    const emailResult = await sendVerificationEmail({
+      email: user.email,
+      name: user.name,
+      token: verification.rawToken,
+    });
+
+    console.info("[auth][resend] verification email sent", {
+      to: user.email,
+      isMockMailTransport: emailResult.isMock,
+      accepted: emailResult.info?.accepted,
+      rejected: emailResult.info?.rejected,
+      response: emailResult.info?.response,
+      messageId: emailResult.info?.messageId,
+    });
+
+    return res.status(200).json({
+      message: "If this email exists and is not verified, a verification email has been sent.",
+    });
+  } catch (error) {
+    console.error("Error resending verification email:", error);
+    return res.status(500).json({ message: "Server error while resending verification email" });
   }
 };
