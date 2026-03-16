@@ -46,6 +46,9 @@ const RegisterPage = () => {
     } catch (error) {
       if (error.code === "ERR_NETWORK") {
         toast.error("Cannot connect to server. Please check backend/CORS configuration.");
+      } else if (error.code === "ECONNABORTED") {
+        toast.info("Request timed out. If your account was created, please continue from login and resend verification email.");
+        navigate(`/login?email=${encodeURIComponent(form.email.trim())}&resend=1`);
       } else {
         toast.error(error.response?.data?.message || "Register failed");
       }

@@ -18,6 +18,19 @@ const toNumber = (value, fallback) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const DEFAULT_MAIL_TIMEOUT_MS = 8_000;
+const MAX_MAIL_TIMEOUT_MS = 12_000;
+
+const getMailTimeoutMs = () => {
+  const parsed = toNumber(process.env.MAIL_TIMEOUT_MS, DEFAULT_MAIL_TIMEOUT_MS);
+
+  if (parsed <= 0) {
+    return DEFAULT_MAIL_TIMEOUT_MS;
+  }
+
+  return Math.min(Math.max(parsed, 1_000), MAX_MAIL_TIMEOUT_MS);
+};
+
 const buildTransport = () => {
   const {
     MAIL_HOST,
@@ -31,7 +44,7 @@ const buildTransport = () => {
   const hasSmtpConfig = Boolean(MAIL_HOST && MAIL_PORT && MAIL_USER && MAIL_PASS);
 
   if (hasSmtpConfig) {
-    const timeoutMs = toNumber(process.env.MAIL_TIMEOUT_MS, 10_000);
+    const timeoutMs = getMailTimeoutMs();
     return nodemailer.createTransport({
       host: MAIL_HOST,
       port: Number(MAIL_PORT),

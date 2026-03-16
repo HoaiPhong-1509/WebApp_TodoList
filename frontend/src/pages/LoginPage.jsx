@@ -58,6 +58,11 @@ const LoginPage = () => {
       const result = await resendVerification({ email: form.email });
       toast.success(result.message || "Verification email has been resent");
     } catch (error) {
+      if (error.code === "ECONNABORTED") {
+        toast.error("Request timed out. Please try resending verification email again.");
+        return;
+      }
+
       const message = error.response?.data?.message || "Failed to resend verification email";
       const verificationUrl = error.response?.data?.verificationUrl;
 
