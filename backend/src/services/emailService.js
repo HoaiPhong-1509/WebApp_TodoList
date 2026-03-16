@@ -2,6 +2,11 @@ import nodemailer from "nodemailer";
 
 const toBoolean = (value) => String(value).toLowerCase() === "true";
 
+const toNumber = (value, fallback) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
 const buildTransport = () => {
   const {
     MAIL_HOST,
@@ -15,6 +20,7 @@ const buildTransport = () => {
   const hasSmtpConfig = Boolean(MAIL_HOST && MAIL_PORT && MAIL_USER && MAIL_PASS);
 
   if (hasSmtpConfig) {
+    const timeoutMs = toNumber(process.env.MAIL_TIMEOUT_MS, 10_000);
     return nodemailer.createTransport({
       host: MAIL_HOST,
       port: Number(MAIL_PORT),
@@ -23,6 +29,9 @@ const buildTransport = () => {
         user: MAIL_USER,
         pass: MAIL_PASS,
       },
+      connectionTimeout: timeoutMs,
+      greetingTimeout: timeoutMs,
+      socketTimeout: timeoutMs,
     });
   }
 

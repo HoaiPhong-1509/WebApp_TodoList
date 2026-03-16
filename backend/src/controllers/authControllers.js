@@ -8,6 +8,23 @@ const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 const getAuthSecret = () => process.env.JWT_SECRET || "dev_secret_change_me";
 
+const withTimeout = async (promise, timeoutMs) => {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return promise;
+  }
+
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("timeout")), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 const createVerificationTokenPair = () => {
   const rawToken = crypto.randomBytes(32).toString("hex");
   const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
@@ -80,11 +97,15 @@ export const register = async (req, res) => {
 
     let emailResult;
     try {
-      emailResult = await sendVerificationEmail({
-        email: user.email,
-        name: user.name,
-        token: verification.rawToken,
-      });
+      const timeoutMs = Number(process.env.MAIL_TIMEOUT_MS || 10_000);
+      emailResult = await withTimeout(
+        sendVerificationEmail({
+          email: user.email,
+          name: user.name,
+          token: verification.rawToken,
+        }),
+        timeoutMs
+      );
 
       console.info("[auth][register] verification email sent", {
         to: user.email,
@@ -212,11 +233,15 @@ export const resendVerificationEmail = async (req, res) => {
     user.verificationTokenExpiresAt = verification.expiresAt;
     await user.save();
 
-    const emailResult = await sendVerificationEmail({
-      email: user.email,
-      name: user.name,
-      token: verification.rawToken,
-    });
+    const timeoutMs = Number(process.env.MAIL_TIMEOUT_MS || 10_000);
+    const emailResult = await withTimeout(
+      sendVerificationEmail({
+        email: user.email,
+        name: user.name,
+        token: verification.rawToken,
+      }),
+      timeoutMs
+    );
 
     console.info("[auth][resend] verification email sent", {
       to: user.email,
