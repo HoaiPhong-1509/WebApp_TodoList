@@ -21,6 +21,10 @@ const allowedOrigins = [...new Set(["http://localhost:5173", ...configuredCorsOr
 
 const app = express();
 const httpServer = http.createServer(app);
+
+// Render (and most PaaS) runs behind a reverse proxy and sets X-Forwarded-* headers.
+// express-rate-limit validates these headers and will throw unless trust proxy is enabled.
+app.set("trust proxy", 1);
  
 //middleware
 app.use(express.json());
