@@ -61,6 +61,10 @@ MAIL_SECURE=false
 MAIL_USER=your_email@gmail.com
 MAIL_PASS=your_app_password
 MAIL_FROM=TodoList <your_email@gmail.com>
+
+# Dev-only fallback for local testing when SMTP is unavailable
+# Do not enable this in production
+RETURN_VERIFICATION_URL=false
 ```
 
 Ghi chú:
@@ -68,6 +72,7 @@ Ghi chú:
 - Nếu chưa cấu hình SMTP, backend dùng chế độ mock mail để phục vụ test local.
 - Để gửi email thật, cần cấu hình đầy đủ biến `MAIL_*` như trên.
 - Ở môi trường production, thiếu cấu hình SMTP thì backend sẽ báo lỗi khởi động để tránh chạy sai luồng xác minh email.
+- `RETURN_VERIFICATION_URL` chỉ có tác dụng ở môi trường dev/local; production luôn tắt để không bypass xác minh email.
 
 ## Checklist chạy thực tế
 

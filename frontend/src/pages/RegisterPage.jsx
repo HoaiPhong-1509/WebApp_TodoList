@@ -35,10 +35,7 @@ const RegisterPage = () => {
       toast.success(result.message || "Verification email sent. Please check your inbox.");
 
       if (result.emailDeliveryFailed) {
-        if (result.verificationUrl) {
-          window.location.assign(result.verificationUrl);
-          return;
-        }
+        toast.info("Email service is temporarily unavailable. Please continue from login and resend verification email.");
         navigate(`/login?email=${encodeURIComponent(form.email.trim())}&resend=1`);
       } else {
         navigate("/login");

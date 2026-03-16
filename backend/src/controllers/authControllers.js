@@ -9,6 +9,7 @@ const DEFAULT_MAIL_TIMEOUT_MS = 8_000;
 const MAX_MAIL_TIMEOUT_MS = 12_000;
 
 const getAuthSecret = () => process.env.JWT_SECRET || "dev_secret_change_me";
+const isProduction = () => process.env.NODE_ENV === "production";
 
 const buildAppBaseUrl = () => {
   const base = process.env.APP_BASE_URL || "http://localhost:5173";
@@ -21,11 +22,16 @@ const buildVerifyEmailUrl = (rawToken) => {
 };
 
 const shouldReturnVerificationUrl = () => {
+  // Never expose direct verification links in production responses.
+  if (isProduction()) {
+    return false;
+  }
+
   const flag = process.env.RETURN_VERIFICATION_URL;
 
   if (flag === undefined || String(flag).trim() === "") {
-    // Default-on in production so users are not blocked when SMTP is unavailable.
-    return process.env.NODE_ENV === "production";
+    // Dev-only convenience fallback.
+    return true;
   }
 
   return String(flag).toLowerCase() === "true";
