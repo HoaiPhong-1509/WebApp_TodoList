@@ -5,6 +5,10 @@ import crypto from "crypto";
 import { sendVerificationEmail } from "../services/emailService.js";
 
 const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
+const SMTP_FALLBACK_EXTRA_TIMEOUT_MS = 5_000;
+const EMAIL_CONTROLLER_OVERHEAD_MS = 3_000;
+const FRONTEND_AXIOS_TIMEOUT_MS = 60_000;
+const MAX_EMAIL_CONTROLLER_TIMEOUT_MS = 55_000;
 
 // Total wall-clock budget for one email-send attempt (including SMTP retries inside emailService).
 // Reads MAIL_SEND_TIMEOUT_MS (also used by emailService) and mirrors the retry budget used there:
@@ -14,8 +18,8 @@ const getEmailControllerTimeoutMs = () => {
   const val = process.env.MAIL_SEND_TIMEOUT_MS || process.env.MAIL_TIMEOUT_MS;
   const parsed = Number(val);
   const perPhaseMs = Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
-  const fallbackPhaseMs = Math.min(perPhaseMs + 5_000, 60_000);
-  return Math.min(perPhaseMs + fallbackPhaseMs + 3_000, 55_000);
+  const fallbackPhaseMs = Math.min(perPhaseMs + SMTP_FALLBACK_EXTRA_TIMEOUT_MS, FRONTEND_AXIOS_TIMEOUT_MS);
+  return Math.min(perPhaseMs + fallbackPhaseMs + EMAIL_CONTROLLER_OVERHEAD_MS, MAX_EMAIL_CONTROLLER_TIMEOUT_MS);
 };
 
 // Wraps an email-send promise with a hard wall-clock timeout so the HTTP request
