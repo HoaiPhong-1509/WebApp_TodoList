@@ -95,9 +95,13 @@ export const register = async (req, res) => {
         messageId: emailResult.info?.messageId,
       });
     } catch (error) {
-      await User.findByIdAndDelete(user._id);
       console.error("Error sending verification email:", error);
-      return res.status(500).json({ message: "Unable to send verification email" });
+
+      return res.status(201).json({
+        message:
+          "Registration successful, but we could not send the verification email right now. Please use Resend Verification on the login screen.",
+        emailDeliveryFailed: true,
+      });
     }
 
     const response = {
@@ -228,6 +232,10 @@ export const resendVerificationEmail = async (req, res) => {
     });
   } catch (error) {
     console.error("Error resending verification email:", error);
-    return res.status(500).json({ message: "Server error while resending verification email" });
+
+    return res.status(503).json({
+      message:
+        "Verification email service is temporarily unavailable. Please try again later.",
+    });
   }
 };

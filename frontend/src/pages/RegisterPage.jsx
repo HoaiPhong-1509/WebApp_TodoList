@@ -33,7 +33,12 @@ const RegisterPage = () => {
       setIsSubmitting(true);
       const result = await register(form);
       toast.success(result.message || "Verification email sent. Please check your inbox.");
-      navigate("/login");
+
+      if (result.emailDeliveryFailed) {
+        navigate(`/login?email=${encodeURIComponent(form.email.trim())}&resend=1`);
+      } else {
+        navigate("/login");
+      }
     } catch (error) {
       if (error.code === "ERR_NETWORK") {
         toast.error("Cannot connect to server. Please check backend/CORS configuration.");

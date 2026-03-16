@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,10 +8,13 @@ import { useAuth } from "@/hooks/useAuth";
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialEmail = searchParams.get("email") || "";
+  const shouldShowResendOnLoad = searchParams.get("resend") === "1";
   const { login, resendVerification } = useAuth();
-  const [form, setForm] = useState({ email: "", password: "" });
+  const [form, setForm] = useState({ email: initialEmail, password: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showResend, setShowResend] = useState(false);
+  const [showResend, setShowResend] = useState(shouldShowResendOnLoad);
   const [isResending, setIsResending] = useState(false);
 
   const onChange = (event) => {
