@@ -27,8 +27,8 @@ const normalizeMailPassword = (value) => {
   return value.replace(/\s+/g, "");
 };
 
-const DEFAULT_MAIL_TIMEOUT_MS = 8_000;
-const MAX_MAIL_TIMEOUT_MS = 12_000;
+const DEFAULT_MAIL_TIMEOUT_MS = process.env.NODE_ENV === "production" ? 20_000 : 8_000;
+const MAX_MAIL_TIMEOUT_MS = 60_000;
 
 const getMailTimeoutMs = () => {
   const parsed = toNumber(process.env.MAIL_TIMEOUT_MS, DEFAULT_MAIL_TIMEOUT_MS);
