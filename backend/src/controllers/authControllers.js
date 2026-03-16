@@ -5,25 +5,23 @@ import crypto from "crypto";
 import { sendVerificationEmail } from "../services/emailService.js";
 
 const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
-const SMTP_FALLBACK_EXTRA_TIMEOUT_MS = 5_000;
 const EMAIL_CONTROLLER_OVERHEAD_MS = 3_000;
 const FRONTEND_AXIOS_TIMEOUT_MS = 60_000;
 const MAX_EMAIL_CONTROLLER_TIMEOUT_MS = 55_000;
 
-// Total wall-clock budget for one email-send attempt (including SMTP retries inside emailService).
-// Reads MAIL_SEND_TIMEOUT_MS (also used by emailService) and mirrors the retry budget used there:
-// 587 attempt (timeoutMs) + optional 465 fallback (timeoutMs + 5s) + small controller overhead.
+// Total wall-clock budget for one email-send attempt.
+// Reads MAIL_SEND_TIMEOUT_MS (also used by emailService) and keeps the API response
+// below the frontend 60 s timeout.
 // The cap stays below the 60 s frontend axios timeout.
 const getEmailControllerTimeoutMs = () => {
   const val = process.env.MAIL_SEND_TIMEOUT_MS || process.env.MAIL_TIMEOUT_MS;
   const parsed = Number(val);
-  const perPhaseMs = Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
-  const fallbackPhaseMs = Math.min(perPhaseMs + SMTP_FALLBACK_EXTRA_TIMEOUT_MS, FRONTEND_AXIOS_TIMEOUT_MS);
-  return Math.min(perPhaseMs + fallbackPhaseMs + EMAIL_CONTROLLER_OVERHEAD_MS, MAX_EMAIL_CONTROLLER_TIMEOUT_MS);
+  const providerTimeoutMs = Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+  return Math.min(providerTimeoutMs + EMAIL_CONTROLLER_OVERHEAD_MS, Math.min(FRONTEND_AXIOS_TIMEOUT_MS - 1_000, MAX_EMAIL_CONTROLLER_TIMEOUT_MS));
 };
 
 // Wraps an email-send promise with a hard wall-clock timeout so the HTTP request
-// always returns quickly even if the SMTP server is unresponsive.
+// always returns quickly even if the email provider is unresponsive.
 const sendEmailWithTimeout = (sendFn) => {
   const timeoutMs = getEmailControllerTimeoutMs();
   return new Promise((resolve, reject) => {
@@ -160,9 +158,7 @@ export const register = async (req, res) => {
         ms: Date.now() - emailStart,
         to: user.email,
         isMockMailTransport: emailResult.isMock,
-        usedFallback465: emailResult.usedFallback465,
-        smtpConnectHost: emailResult.smtpConnectHost,
-        forcedIpv4: emailResult.forcedIpv4,
+        provider: emailResult.provider,
         accepted: emailResult.info?.accepted,
         rejected: emailResult.info?.rejected,
         response: emailResult.info?.response,
@@ -173,7 +169,7 @@ export const register = async (req, res) => {
 
       const response = {
         message:
-          "Registration successful, but we could not send the verification email right now. Please use Resend Verification on the login screen.",
+          "Registration successful, but we could not send the verification email right now. Please use Resend Verification Email on the login screen.",
         emailDeliveryFailed: true,
       };
 
@@ -320,9 +316,7 @@ export const resendVerificationEmail = async (req, res) => {
       ms: Date.now() - emailStart,
       to: user.email,
       isMockMailTransport: emailResult.isMock,
-      usedFallback465: emailResult.usedFallback465,
-      smtpConnectHost: emailResult.smtpConnectHost,
-      forcedIpv4: emailResult.forcedIpv4,
+      provider: emailResult.provider,
       accepted: emailResult.info?.accepted,
       rejected: emailResult.info?.rejected,
       response: emailResult.info?.response,
