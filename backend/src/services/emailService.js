@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import dns from "dns";
+import net from "net";
 
 // Some hosting environments have problematic IPv6 connectivity.
 // Prefer IPv4 to avoid long connection hangs to SMTP providers.
@@ -16,6 +17,14 @@ const toBoolean = (value) => String(value).toLowerCase() === "true";
 const toNumber = (value, fallback) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+};
+
+const parseBooleanEnv = (value, fallback) => {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return fallback;
+  }
+
+  return String(value).toLowerCase() === "true";
 };
 
 const normalizeMailPassword = (value) => {
@@ -67,9 +76,54 @@ const getMailTimeoutMs = () => {
   return Math.min(Math.max(parsed, 1_000), MAX_MAIL_TIMEOUT_MS);
 };
 
-const buildTransport = ({ host, port, secure, user, pass, timeoutMs }) => {
+const shouldForceIpv4 = () => {
+  // Default true in production where many platforms have limited IPv6 egress.
+  return parseBooleanEnv(process.env.MAIL_FORCE_IPV4, process.env.NODE_ENV === "production");
+};
+
+const resolveConnectHost = async (host) => {
+  if (!shouldForceIpv4()) {
+    return {
+      connectHost: host,
+      forcedIpv4: false,
+    };
+  }
+
+  if (net.isIP(host)) {
+    return {
+      connectHost: host,
+      forcedIpv4: false,
+    };
+  }
+
+  try {
+    const result = await dns.promises.lookup(host, {
+      family: 4,
+      all: true,
+      verbatim: false,
+    });
+
+    const first = Array.isArray(result) ? result[0] : result;
+
+    if (first?.address) {
+      return {
+        connectHost: first.address,
+        forcedIpv4: true,
+      };
+    }
+  } catch {
+    // Fall back to hostname and let Node decide if explicit lookup fails.
+  }
+
+  return {
+    connectHost: host,
+    forcedIpv4: false,
+  };
+};
+
+const buildTransport = ({ host, connectHost, port, secure, user, pass, timeoutMs }) => {
   return nodemailer.createTransport({
-    host,
+    host: connectHost || host,
     port: Number(port),
     secure,
     auth: {
@@ -122,9 +176,18 @@ const getSmtpConfig = () => {
 };
 
 const sendWithSmtpConfig = async ({ config, mailOptions }) => {
-  const transporter = buildTransport(config);
+  const resolution = await resolveConnectHost(config.host);
+  const transporter = buildTransport({
+    ...config,
+    connectHost: resolution.connectHost,
+  });
   const info = await transporter.sendMail(mailOptions);
-  return { info, usedFallback465: false };
+  return {
+    info,
+    usedFallback465: false,
+    smtpConnectHost: resolution.connectHost,
+    forcedIpv4: resolution.forcedIpv4,
+  };
 };
 
 export const sendVerificationEmail = async ({ email, name, token }) => {
@@ -177,6 +240,8 @@ export const sendVerificationEmail = async ({ email, name, token }) => {
       verifyUrl,
       isMock: false,
       usedFallback465: result.usedFallback465,
+      smtpConnectHost: result.smtpConnectHost,
+      forcedIpv4: result.forcedIpv4,
     };
   } catch (error) {
     if (!isRetryableSmtpError(error) || !shouldRetryWithTls465(smtpConfig)) {
@@ -197,6 +262,8 @@ export const sendVerificationEmail = async ({ email, name, token }) => {
       verifyUrl,
       isMock: false,
       usedFallback465: true,
+      smtpConnectHost: fallbackResult.smtpConnectHost,
+      forcedIpv4: fallbackResult.forcedIpv4,
     };
   }
 

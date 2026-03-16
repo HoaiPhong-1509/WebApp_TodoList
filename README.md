@@ -66,6 +66,10 @@ MAIL_FROM=TodoList <your_email@gmail.com>
 # Recommended: 10000 (10 s) on Render free tier to stay well under the 60 s axios limit.
 MAIL_SEND_TIMEOUT_MS=10000
 
+# Force SMTP connection via IPv4 first (recommended on Render/Railway/Fly if IPv6 egress is unstable)
+# Default: true in production, false in development when omitted.
+MAIL_FORCE_IPV4=true
+
 # Dev-only fallback for local testing when SMTP is unavailable
 # Do not enable this in production
 RETURN_VERIFICATION_URL=false
@@ -107,6 +111,7 @@ Sau khi bấm **Register**, frontend hiển thị:
 | `MAIL_SEND_TIMEOUT_MS` chưa được đặt | Mặc định backend dùng 10 s (production), nhưng nên khai báo rõ ràng trên Render. |
 | `APP_BASE_URL` sai | Link verify trong email trỏ sai domain → người dùng click nhưng không xác minh được. |
 | Gmail App Password có khoảng trắng | Backend tự loại bỏ khoảng trắng, nhưng nên kiểm tra lại giá trị trên Render. |
+| `ENETUNREACH ... 2607:...` trong logs | Hạ tầng không đi được IPv6 outbound tới Gmail SMTP, cần ép SMTP qua IPv4 (`MAIL_FORCE_IPV4=true`). |
 | `NODE_ENV` chưa đặt là `production` | Backend sẽ dùng mock mail thay vì SMTP thật. |
 
 ### Các bước kiểm tra
