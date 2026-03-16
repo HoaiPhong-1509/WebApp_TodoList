@@ -7,14 +7,15 @@ import { sendVerificationEmail } from "../services/emailService.js";
 const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 // Total wall-clock budget for one email-send attempt (including SMTP retries inside emailService).
-// Reads MAIL_SEND_TIMEOUT_MS (also used by emailService) and adds a small safety margin so the
-// controller always responds before the 60 s frontend axios timeout.
+// Reads MAIL_SEND_TIMEOUT_MS (also used by emailService) and mirrors the retry budget used there:
+// 587 attempt (timeoutMs) + optional 465 fallback (timeoutMs + 5s) + small controller overhead.
+// The cap stays below the 60 s frontend axios timeout.
 const getEmailControllerTimeoutMs = () => {
   const val = process.env.MAIL_SEND_TIMEOUT_MS || process.env.MAIL_TIMEOUT_MS;
   const parsed = Number(val);
   const perPhaseMs = Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
-  // Allow up to 2× the per-phase timeout for first attempt + 465 fallback, capped at 25 s.
-  return Math.min(perPhaseMs * 2 + 2_000, 25_000);
+  const fallbackPhaseMs = Math.min(perPhaseMs + 5_000, 60_000);
+  return Math.min(perPhaseMs + fallbackPhaseMs + 3_000, 55_000);
 };
 
 // Wraps an email-send promise with a hard wall-clock timeout so the HTTP request
