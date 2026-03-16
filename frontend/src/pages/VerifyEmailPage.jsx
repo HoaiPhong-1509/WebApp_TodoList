@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,17 +6,23 @@ import api from "@/lib/axios";
 
 const VerifyEmailPage = () => {
   const [searchParams] = useSearchParams();
+  const token = searchParams.get("token");
   const [status, setStatus] = useState("loading");
   const [message, setMessage] = useState("Verifying your email...");
+  const hasRequestedRef = useRef(false);
 
   useEffect(() => {
-    const token = searchParams.get("token");
-
     if (!token) {
       setStatus("error");
       setMessage("Missing verification token.");
       return;
     }
+
+    if (hasRequestedRef.current) {
+      return;
+    }
+
+    hasRequestedRef.current = true;
 
     const verify = async () => {
       try {
@@ -30,7 +36,7 @@ const VerifyEmailPage = () => {
     };
 
     verify();
-  }, [searchParams]);
+  }, [token]);
 
   return (
     <div className="relative grid min-h-screen place-items-center overflow-hidden px-4">
