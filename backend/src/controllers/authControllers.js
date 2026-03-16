@@ -6,6 +6,38 @@ import { sendVerificationEmail } from "../services/emailService.js";
 
 const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
 
+// Total wall-clock budget for one email-send attempt (including SMTP retries inside emailService).
+// Reads MAIL_SEND_TIMEOUT_MS (also used by emailService) and adds a small safety margin so the
+// controller always responds before the 60 s frontend axios timeout.
+const getEmailControllerTimeoutMs = () => {
+  const val = process.env.MAIL_SEND_TIMEOUT_MS || process.env.MAIL_TIMEOUT_MS;
+  const parsed = Number(val);
+  const perPhaseMs = Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+  // Allow up to 2× the per-phase timeout for first attempt + 465 fallback, capped at 25 s.
+  return Math.min(perPhaseMs * 2 + 2_000, 25_000);
+};
+
+// Wraps an email-send promise with a hard wall-clock timeout so the HTTP request
+// always returns quickly even if the SMTP server is unresponsive.
+const sendEmailWithTimeout = (sendFn) => {
+  const timeoutMs = getEmailControllerTimeoutMs();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        Object.assign(
+          new Error(`Email send timed out after ${timeoutMs}ms`),
+          { code: "EMAIL_CONTROLLER_TIMEOUT" }
+        )
+      );
+    }, timeoutMs);
+    // Use Promise.resolve to guard against sendFn throwing synchronously.
+    Promise.resolve().then(() => sendFn()).then(
+      (result) => { clearTimeout(timer); resolve(result); },
+      (err)    => { clearTimeout(timer); reject(err); }
+    );
+  });
+};
+
 const getAuthSecret = () => process.env.JWT_SECRET || "dev_secret_change_me";
 const isProduction = () => process.env.NODE_ENV === "production";
 
@@ -97,6 +129,7 @@ export const register = async (req, res) => {
 
     const verification = createVerificationTokenPair();
 
+    const dbStart = Date.now();
     const user = await User.create({
       name: name.trim(),
       email: normalizedEmail,
@@ -105,16 +138,21 @@ export const register = async (req, res) => {
       verificationToken: verification.hashedToken,
       verificationTokenExpiresAt: verification.expiresAt,
     });
+    console.info("[auth][register] user created in DB", { ms: Date.now() - dbStart, userId: user._id });
 
     let emailResult;
+    const emailStart = Date.now();
     try {
-      emailResult = await sendVerificationEmail({
-        email: user.email,
-        name: user.name,
-        token: verification.rawToken,
-      });
+      emailResult = await sendEmailWithTimeout(() =>
+        sendVerificationEmail({
+          email: user.email,
+          name: user.name,
+          token: verification.rawToken,
+        })
+      );
 
       console.info("[auth][register] verification email sent", {
+        ms: Date.now() - emailStart,
         to: user.email,
         isMockMailTransport: emailResult.isMock,
         usedFallback465: emailResult.usedFallback465,
@@ -124,7 +162,7 @@ export const register = async (req, res) => {
         messageId: emailResult.info?.messageId,
       });
     } catch (error) {
-      console.error("Error sending verification email:", error);
+      console.error("[auth][register] email send failed", { ms: Date.now() - emailStart, code: error.code, message: error.message });
 
       const response = {
         message:
@@ -248,14 +286,17 @@ export const resendVerificationEmail = async (req, res) => {
     await user.save();
 
     let emailResult;
+    const emailStart = Date.now();
     try {
-      emailResult = await sendVerificationEmail({
-        email: user.email,
-        name: user.name,
-        token: verification.rawToken,
-      });
+      emailResult = await sendEmailWithTimeout(() =>
+        sendVerificationEmail({
+          email: user.email,
+          name: user.name,
+          token: verification.rawToken,
+        })
+      );
     } catch (error) {
-      console.error("Error resending verification email:", error);
+      console.error("[auth][resend] email send failed", { ms: Date.now() - emailStart, code: error.code, message: error.message });
 
       const response = {
         message:
@@ -269,6 +310,7 @@ export const resendVerificationEmail = async (req, res) => {
     }
 
     console.info("[auth][resend] verification email sent", {
+      ms: Date.now() - emailStart,
       to: user.email,
       isMockMailTransport: emailResult.isMock,
       usedFallback465: emailResult.usedFallback465,
