@@ -51,11 +51,14 @@ const shouldRetryWithTls465 = ({ host, port, secure }) => {
   return String(host || "").toLowerCase() === "smtp.gmail.com" && Number(port) === 587 && secure === false;
 };
 
-const DEFAULT_MAIL_TIMEOUT_MS = process.env.NODE_ENV === "production" ? 20_000 : 8_000;
+// Lower default in production so each SMTP phase times out before the frontend 60 s axios limit.
+const DEFAULT_MAIL_TIMEOUT_MS = process.env.NODE_ENV === "production" ? 10_000 : 8_000;
 const MAX_MAIL_TIMEOUT_MS = 60_000;
 
 const getMailTimeoutMs = () => {
-  const parsed = toNumber(process.env.MAIL_TIMEOUT_MS, DEFAULT_MAIL_TIMEOUT_MS);
+  // Support both MAIL_SEND_TIMEOUT_MS (documented in README) and the older MAIL_TIMEOUT_MS alias.
+  const envValue = process.env.MAIL_SEND_TIMEOUT_MS || process.env.MAIL_TIMEOUT_MS;
+  const parsed = toNumber(envValue, DEFAULT_MAIL_TIMEOUT_MS);
 
   if (parsed <= 0) {
     return DEFAULT_MAIL_TIMEOUT_MS;
