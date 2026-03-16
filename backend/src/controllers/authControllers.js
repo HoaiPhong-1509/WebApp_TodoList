@@ -8,6 +8,19 @@ const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 const getAuthSecret = () => process.env.JWT_SECRET || "dev_secret_change_me";
 
+const buildAppBaseUrl = () => {
+  const base = process.env.APP_BASE_URL || "http://localhost:5173";
+  return String(base).replace(/\/+$/, "");
+};
+
+const buildVerifyEmailUrl = (rawToken) => {
+  const appUrl = buildAppBaseUrl();
+  return `${appUrl}/verify-email?token=${encodeURIComponent(rawToken)}`;
+};
+
+const shouldReturnVerificationUrl = () =>
+  String(process.env.RETURN_VERIFICATION_URL || "").toLowerCase() === "true";
+
 const withTimeout = async (promise, timeoutMs) => {
   if (!timeoutMs || timeoutMs <= 0) {
     return promise;
@@ -118,11 +131,17 @@ export const register = async (req, res) => {
     } catch (error) {
       console.error("Error sending verification email:", error);
 
-      return res.status(201).json({
+      const response = {
         message:
           "Registration successful, but we could not send the verification email right now. Please use Resend Verification on the login screen.",
         emailDeliveryFailed: true,
-      });
+      };
+
+      if (shouldReturnVerificationUrl()) {
+        response.verificationUrl = buildVerifyEmailUrl(verification.rawToken);
+      }
+
+      return res.status(201).json(response);
     }
 
     const response = {
@@ -234,14 +253,29 @@ export const resendVerificationEmail = async (req, res) => {
     await user.save();
 
     const timeoutMs = Number(process.env.MAIL_TIMEOUT_MS || 10_000);
-    const emailResult = await withTimeout(
-      sendVerificationEmail({
-        email: user.email,
-        name: user.name,
-        token: verification.rawToken,
-      }),
-      timeoutMs
-    );
+    let emailResult;
+    try {
+      emailResult = await withTimeout(
+        sendVerificationEmail({
+          email: user.email,
+          name: user.name,
+          token: verification.rawToken,
+        }),
+        timeoutMs
+      );
+    } catch (error) {
+      console.error("Error resending verification email:", error);
+
+      const response = {
+        message:
+          "Verification email service is temporarily unavailable. Please try again later.",
+      };
+      if (shouldReturnVerificationUrl()) {
+        response.verificationUrl = buildVerifyEmailUrl(verification.rawToken);
+      }
+
+      return res.status(503).json(response);
+    }
 
     console.info("[auth][resend] verification email sent", {
       to: user.email,

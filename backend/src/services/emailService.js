@@ -1,4 +1,15 @@
 import nodemailer from "nodemailer";
+import dns from "dns";
+
+// Some hosting environments have problematic IPv6 connectivity.
+// Prefer IPv4 to avoid long connection hangs to SMTP providers.
+try {
+  if (typeof dns.setDefaultResultOrder === "function") {
+    dns.setDefaultResultOrder("ipv4first");
+  }
+} catch {
+  // Ignore; not available on all Node versions.
+}
 
 const toBoolean = (value) => String(value).toLowerCase() === "true";
 
