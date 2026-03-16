@@ -7,6 +7,7 @@ import TaskListPagination from '@/components/TaskListPagination';
 import DateTimeFilter from '@/components/DateTimeFilter';
 import TaskList from '@/components/TaskList';
 import Footer from '@/components/Footer';
+import ChatPanel from '@/components/ChatPanel';
 import { toast } from 'sonner';
 import api from '@/lib/axios';
 import { visibleTaskLimit } from '@/lib/data';
@@ -151,6 +152,7 @@ const HomePage = () => {
 
       </div>
     </div>
+  <ChatPanel />
 </div>
 
 

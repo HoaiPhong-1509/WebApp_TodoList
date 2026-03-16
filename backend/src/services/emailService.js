@@ -39,7 +39,7 @@ export const sendVerificationEmail = async ({ email, name, token }) => {
   const transporter = buildTransport();
   const isMock = !!transporter.options?.jsonTransport;
 
-  const appUrl = APP_BASE_URL || "http://localhost:5173";
+  const appUrl = (APP_BASE_URL || "http://localhost:5173").replace(/\/+$/, "");
   const verifyUrl = `${appUrl}/verify-email?token=${token}`;
 
   const info = await transporter.sendMail({

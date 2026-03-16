@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test:chat": "node scripts/testRealtimeChat.js",
+    "test:smoke": "node scripts/testAppSmoke.js"
   },
   "keywords": [],
   "author": "",
@@ -18,6 +20,8 @@
     "express-rate-limit": "^8.3.1",
     "mongoose": "^9.2.1",
     "nodemailer": "^8.0.2",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "webapp_todolist": "file:.."
   },
   "devDependencies": {

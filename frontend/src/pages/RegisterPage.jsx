@@ -35,7 +35,11 @@ const RegisterPage = () => {
       toast.success(result.message || "Verification email sent. Please check your inbox.");
       navigate("/login");
     } catch (error) {
-      toast.error(error.response?.data?.message || "Register failed");
+      if (error.code === "ERR_NETWORK") {
+        toast.error("Cannot connect to server. Please check backend/CORS configuration.");
+      } else {
+        toast.error(error.response?.data?.message || "Register failed");
+      }
     } finally {
       setIsSubmitting(false);
     }
