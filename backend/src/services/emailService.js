@@ -27,6 +27,30 @@ const normalizeMailPassword = (value) => {
   return value.replace(/\s+/g, "");
 };
 
+const isRetryableSmtpError = (error) => {
+  if (!error) {
+    return false;
+  }
+
+  const code = String(error.code || "").toUpperCase();
+  if (["ETIMEDOUT", "ESOCKET", "ECONNECTION", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH"].includes(code)) {
+    return true;
+  }
+
+  const message = String(error.message || "").toLowerCase();
+  return message.includes("timeout") || message.includes("connection") || message.includes("greeting never received");
+};
+
+const shouldRetryWithTls465 = ({ host, port, secure }) => {
+  const envFlag = String(process.env.MAIL_ENABLE_FALLBACK_465 ?? "true").toLowerCase() === "true";
+  if (!envFlag) {
+    return false;
+  }
+
+  // Common fallback path for Gmail-style SMTP: 587 STARTTLS -> 465 SMTPS.
+  return String(host || "").toLowerCase() === "smtp.gmail.com" && Number(port) === 587 && secure === false;
+};
+
 const DEFAULT_MAIL_TIMEOUT_MS = process.env.NODE_ENV === "production" ? 20_000 : 8_000;
 const MAX_MAIL_TIMEOUT_MS = 60_000;
 
@@ -40,7 +64,27 @@ const getMailTimeoutMs = () => {
   return Math.min(Math.max(parsed, 1_000), MAX_MAIL_TIMEOUT_MS);
 };
 
-const buildTransport = () => {
+const buildTransport = ({ host, port, secure, user, pass, timeoutMs }) => {
+  return nodemailer.createTransport({
+    host,
+    port: Number(port),
+    secure,
+    auth: {
+      user,
+      pass,
+    },
+    connectionTimeout: timeoutMs,
+    greetingTimeout: timeoutMs,
+    socketTimeout: timeoutMs,
+    requireTLS: !secure,
+    tls: {
+      servername: host,
+      minVersion: "TLSv1.2",
+    },
+  });
+};
+
+const getSmtpConfig = () => {
   const {
     MAIL_HOST,
     MAIL_PORT,
@@ -54,38 +98,63 @@ const buildTransport = () => {
   const hasSmtpConfig = Boolean(MAIL_HOST && MAIL_PORT && MAIL_USER && normalizedMailPass);
 
   if (hasSmtpConfig) {
-    const timeoutMs = getMailTimeoutMs();
-    return nodemailer.createTransport({
+    return {
       host: MAIL_HOST,
       port: Number(MAIL_PORT),
       secure: toBoolean(MAIL_SECURE),
-      auth: {
-        user: MAIL_USER,
-        pass: normalizedMailPass,
-      },
-      connectionTimeout: timeoutMs,
-      greetingTimeout: timeoutMs,
-      socketTimeout: timeoutMs,
-    });
+      user: MAIL_USER,
+      pass: normalizedMailPass,
+      timeoutMs: getMailTimeoutMs(),
+      isMock: false,
+    };
   }
 
   if (NODE_ENV === "production") {
     throw new Error("SMTP configuration is required in production (MAIL_HOST, MAIL_PORT, MAIL_USER, MAIL_PASS)");
   }
 
+  return {
+    isMock: true,
+  };
+};
 
-  return nodemailer.createTransport({ jsonTransport: true });
+const sendWithSmtpConfig = async ({ config, mailOptions }) => {
+  const transporter = buildTransport(config);
+  const info = await transporter.sendMail(mailOptions);
+  return { info, usedFallback465: false };
 };
 
 export const sendVerificationEmail = async ({ email, name, token }) => {
   const { APP_BASE_URL, MAIL_FROM, MAIL_USER } = process.env;
-  const transporter = buildTransport();
-  const isMock = !!transporter.options?.jsonTransport;
+  const smtpConfig = getSmtpConfig();
 
   const appUrl = (APP_BASE_URL || "http://localhost:5173").replace(/\/+$/, "");
   const verifyUrl = `${appUrl}/verify-email?token=${token}`;
 
-  const info = await transporter.sendMail({
+  if (smtpConfig.isMock) {
+    const mockTransporter = nodemailer.createTransport({ jsonTransport: true });
+    const info = await mockTransporter.sendMail({
+      from: MAIL_FROM || MAIL_USER || "no-reply@todolist.local",
+      to: email,
+      subject: "Verify your TodoList account",
+      text: `Hi ${name},\n\nPlease verify your account by clicking this link:\n${verifyUrl}\n\nThis link will expire in 1 hour.`,
+      html: `
+      <p>Hi ${name},</p>
+      <p>Please verify your account by clicking the link below:</p>
+      <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+      <p>This link will expire in 1 hour.</p>
+    `,
+    });
+
+    return {
+      info,
+      verifyUrl,
+      isMock: true,
+      usedFallback465: false,
+    };
+  }
+
+  const mailOptions = {
     from: MAIL_FROM || MAIL_USER || "no-reply@todolist.local",
     to: email,
     subject: "Verify your TodoList account",
@@ -96,11 +165,36 @@ export const sendVerificationEmail = async ({ email, name, token }) => {
       <p><a href="${verifyUrl}">${verifyUrl}</a></p>
       <p>This link will expire in 1 hour.</p>
     `,
-  });
-
-  return {
-    info,
-    verifyUrl,
-    isMock,
   };
+
+  try {
+    const result = await sendWithSmtpConfig({ config: smtpConfig, mailOptions });
+    return {
+      info: result.info,
+      verifyUrl,
+      isMock: false,
+      usedFallback465: result.usedFallback465,
+    };
+  } catch (error) {
+    if (!isRetryableSmtpError(error) || !shouldRetryWithTls465(smtpConfig)) {
+      throw error;
+    }
+
+    const fallbackConfig = {
+      ...smtpConfig,
+      port: 465,
+      secure: true,
+      // Slightly longer timeout for TLS direct connect retry.
+      timeoutMs: Math.min(smtpConfig.timeoutMs + 5_000, MAX_MAIL_TIMEOUT_MS),
+    };
+
+    const fallbackResult = await sendWithSmtpConfig({ config: fallbackConfig, mailOptions });
+    return {
+      info: fallbackResult.info,
+      verifyUrl,
+      isMock: false,
+      usedFallback465: true,
+    };
+  }
+
 };

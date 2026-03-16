@@ -5,8 +5,6 @@ import crypto from "crypto";
 import { sendVerificationEmail } from "../services/emailService.js";
 
 const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
-const DEFAULT_MAIL_SEND_TIMEOUT_MS = 10_000;
-const MAX_MAIL_SEND_TIMEOUT_MS = 13_000;
 
 const getAuthSecret = () => process.env.JWT_SECRET || "dev_secret_change_me";
 const isProduction = () => process.env.NODE_ENV === "production";
@@ -35,32 +33,6 @@ const shouldReturnVerificationUrl = () => {
   }
 
   return String(flag).toLowerCase() === "true";
-};
-
-const getMailSendTimeoutMs = () => {
-  const parsed = Number(process.env.MAIL_SEND_TIMEOUT_MS);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_MAIL_SEND_TIMEOUT_MS;
-  }
-
-  return Math.min(Math.max(parsed, 1_000), MAX_MAIL_SEND_TIMEOUT_MS);
-};
-
-const withTimeout = async (promise, timeoutMs) => {
-  if (!timeoutMs || timeoutMs <= 0) {
-    return promise;
-  }
-
-  let timeoutId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error("mail_send_timeout")), timeoutMs);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    clearTimeout(timeoutId);
-  }
 };
 
 
@@ -136,18 +108,16 @@ export const register = async (req, res) => {
 
     let emailResult;
     try {
-      emailResult = await withTimeout(
-        sendVerificationEmail({
-          email: user.email,
-          name: user.name,
-          token: verification.rawToken,
-        }),
-        getMailSendTimeoutMs()
-      );
+      emailResult = await sendVerificationEmail({
+        email: user.email,
+        name: user.name,
+        token: verification.rawToken,
+      });
 
       console.info("[auth][register] verification email sent", {
         to: user.email,
         isMockMailTransport: emailResult.isMock,
+        usedFallback465: emailResult.usedFallback465,
         accepted: emailResult.info?.accepted,
         rejected: emailResult.info?.rejected,
         response: emailResult.info?.response,
@@ -279,14 +249,11 @@ export const resendVerificationEmail = async (req, res) => {
 
     let emailResult;
     try {
-      emailResult = await withTimeout(
-        sendVerificationEmail({
-          email: user.email,
-          name: user.name,
-          token: verification.rawToken,
-        }),
-        getMailSendTimeoutMs()
-      );
+      emailResult = await sendVerificationEmail({
+        email: user.email,
+        name: user.name,
+        token: verification.rawToken,
+      });
     } catch (error) {
       console.error("Error resending verification email:", error);
 
@@ -304,6 +271,7 @@ export const resendVerificationEmail = async (req, res) => {
     console.info("[auth][resend] verification email sent", {
       to: user.email,
       isMockMailTransport: emailResult.isMock,
+      usedFallback465: emailResult.usedFallback465,
       accepted: emailResult.info?.accepted,
       rejected: emailResult.info?.rejected,
       response: emailResult.info?.response,
