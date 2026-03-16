@@ -18,8 +18,16 @@ const buildVerifyEmailUrl = (rawToken) => {
   return `${appUrl}/verify-email?token=${encodeURIComponent(rawToken)}`;
 };
 
-const shouldReturnVerificationUrl = () =>
-  String(process.env.RETURN_VERIFICATION_URL || "").toLowerCase() === "true";
+const shouldReturnVerificationUrl = () => {
+  const flag = process.env.RETURN_VERIFICATION_URL;
+
+  if (flag === undefined || String(flag).trim() === "") {
+    // Default-on in production so users are not blocked when SMTP is unavailable.
+    return process.env.NODE_ENV === "production";
+  }
+
+  return String(flag).toLowerCase() === "true";
+};
 
 const withTimeout = async (promise, timeoutMs) => {
   if (!timeoutMs || timeoutMs <= 0) {

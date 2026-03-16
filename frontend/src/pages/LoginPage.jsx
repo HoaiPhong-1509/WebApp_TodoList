@@ -58,7 +58,16 @@ const LoginPage = () => {
       const result = await resendVerification({ email: form.email });
       toast.success(result.message || "Verification email has been resent");
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to resend verification email");
+      const message = error.response?.data?.message || "Failed to resend verification email";
+      const verificationUrl = error.response?.data?.verificationUrl;
+
+      if (verificationUrl) {
+        toast.info("Email service is unavailable. Opening verification link directly.");
+        window.location.assign(verificationUrl);
+        return;
+      }
+
+      toast.error(message);
     } finally {
       setIsResending(false);
     }

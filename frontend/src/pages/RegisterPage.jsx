@@ -35,6 +35,10 @@ const RegisterPage = () => {
       toast.success(result.message || "Verification email sent. Please check your inbox.");
 
       if (result.emailDeliveryFailed) {
+        if (result.verificationUrl) {
+          window.location.assign(result.verificationUrl);
+          return;
+        }
         navigate(`/login?email=${encodeURIComponent(form.email.trim())}&resend=1`);
       } else {
         navigate("/login");
