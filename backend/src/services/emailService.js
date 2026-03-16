@@ -18,6 +18,15 @@ const toNumber = (value, fallback) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const normalizeMailPassword = (value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  // Gmail app passwords are often copied with spaces every 4 chars.
+  return value.replace(/\s+/g, "");
+};
+
 const DEFAULT_MAIL_TIMEOUT_MS = 8_000;
 const MAX_MAIL_TIMEOUT_MS = 12_000;
 
@@ -40,8 +49,9 @@ const buildTransport = () => {
     MAIL_SECURE,
     NODE_ENV,
   } = process.env;
+  const normalizedMailPass = normalizeMailPassword(MAIL_PASS);
 
-  const hasSmtpConfig = Boolean(MAIL_HOST && MAIL_PORT && MAIL_USER && MAIL_PASS);
+  const hasSmtpConfig = Boolean(MAIL_HOST && MAIL_PORT && MAIL_USER && normalizedMailPass);
 
   if (hasSmtpConfig) {
     const timeoutMs = getMailTimeoutMs();
@@ -51,7 +61,7 @@ const buildTransport = () => {
       secure: toBoolean(MAIL_SECURE),
       auth: {
         user: MAIL_USER,
-        pass: MAIL_PASS,
+        pass: normalizedMailPass,
       },
       connectionTimeout: timeoutMs,
       greetingTimeout: timeoutMs,

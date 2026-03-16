@@ -81,3 +81,4 @@ Ghi chú:
 - Cấu hình SMTP thật (Gmail SMTP, SendGrid SMTP, Mailgun SMTP...).
 - Bật TLS đúng theo nhà cung cấp mail (`MAIL_SECURE`, `MAIL_PORT`).
 - Cho phép DNS outbound từ server backend để kiểm tra MX record.
+- Nếu dùng Gmail App Password, có thể dán dạng có khoảng trắng; backend sẽ tự chuẩn hóa trước khi gửi mail.
