@@ -38,7 +38,7 @@ const DateTimeFilter = ({ onValueChange, dateQuery, setDateQuery }) => {
 				</Button>
 			</PopoverTrigger>
 
-			<PopoverContent className="w-[200px] p-0" align="end">
+			<PopoverContent className="w-[200px] p-0" align="end" side="top" sideOffset={8}>
 				<Command>
 					<CommandList>
 						{options.map((opt) => (

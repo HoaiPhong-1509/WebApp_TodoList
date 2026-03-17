@@ -2,6 +2,23 @@ import Task from "../models/Task.js";
 import Workspace from "../models/Workspace.js";
 import { ensureDefaultWorkspace } from "./workspacesControllers.js";
 
+const ACTIVITY_TIMEZONE = process.env.APP_TIMEZONE || "Asia/Ho_Chi_Minh";
+
+const formatDateKeyInTimezone = (date, timeZone = ACTIVITY_TIMEZONE) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(date);
+
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+
+    return `${year}-${month}-${day}`;
+};
+
 const normalizeWorkspaceId = (rawId) => {
     if (!rawId || typeof rawId !== "string") {
         return null;
@@ -70,7 +87,7 @@ export const getAllTasks = async (req, res) => {
     };
     const activityStartDate = new Date(now);
     activityStartDate.setUTCHours(0, 0, 0, 0);
-    activityStartDate.setUTCDate(activityStartDate.getUTCDate() - 13);
+    activityStartDate.setUTCDate(activityStartDate.getUTCDate() - 6);
 
     try {
         const workspace = await resolveWorkspaceForRequest(userId, req.query.workspaceId);
@@ -111,6 +128,7 @@ export const getAllTasks = async (req, res) => {
                 {
                     $match: {
                         user: userId,
+                        workspace: workspace._id,
                         createdAt: { $gte: activityStartDate },
                     },
                 },
@@ -120,6 +138,7 @@ export const getAllTasks = async (req, res) => {
                             $dateToString: {
                                 format: "%Y-%m-%d",
                                 date: "$createdAt",
+                                timezone: ACTIVITY_TIMEZONE,
                             },
                         },
                         count: { $sum: 1 },
@@ -130,6 +149,7 @@ export const getAllTasks = async (req, res) => {
                 {
                     $match: {
                         user: userId,
+                        workspace: workspace._id,
                         completedAt: {
                             $ne: null,
                             $gte: activityStartDate,
@@ -142,6 +162,7 @@ export const getAllTasks = async (req, res) => {
                             $dateToString: {
                                 format: "%Y-%m-%d",
                                 date: "$completedAt",
+                                timezone: ACTIVITY_TIMEZONE,
                             },
                         },
                         count: { $sum: 1 },
@@ -164,18 +185,17 @@ export const getAllTasks = async (req, res) => {
         const completedByDate = new Map(activityCompletedResult.map((item) => [item._id, item.count]));
         const userActivitySeries = [];
 
-        for (let i = 13; i >= 0; i -= 1) {
+        for (let i = 6; i >= 0; i -= 1) {
             const day = new Date(now);
-            day.setUTCHours(0, 0, 0, 0);
-            day.setUTCDate(day.getUTCDate() - i);
+            day.setDate(day.getDate() - i);
 
-            const key = day.toISOString().slice(0, 10);
+            const key = formatDateKeyInTimezone(day);
             const createdCount = createdByDate.get(key) || 0;
             const completedCount = completedByDate.get(key) || 0;
 
             userActivitySeries.push({
                 key,
-                label: day.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }),
+                label: day.toLocaleDateString("en-US", { weekday: "short", timeZone: ACTIVITY_TIMEZONE }),
                 createdCount,
                 completedCount,
                 netFlow: completedCount - createdCount,
