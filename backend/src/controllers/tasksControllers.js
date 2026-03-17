@@ -1,4 +1,41 @@
 import Task from "../models/Task.js";
+import Workspace from "../models/Workspace.js";
+import { ensureDefaultWorkspace } from "./workspacesControllers.js";
+
+const normalizeWorkspaceId = (rawId) => {
+    if (!rawId || typeof rawId !== "string") {
+        return null;
+    }
+    const trimmed = rawId.trim();
+    return trimmed || null;
+};
+
+const resolveWorkspaceForRequest = async (userId, rawWorkspaceId) => {
+    const defaultWorkspace = await ensureDefaultWorkspace(userId);
+    const workspaceId = normalizeWorkspaceId(rawWorkspaceId);
+
+    if (!workspaceId) {
+        return defaultWorkspace;
+    }
+
+    const workspace = await Workspace.findOne({ _id: workspaceId, user: userId });
+    if (!workspace) {
+        return null;
+    }
+
+    return workspace;
+};
+
+const migrateLegacyTasksToWorkspace = async (userId, workspaceId) => {
+    await Task.updateMany(
+        { user: userId, workspace: { $in: [null, undefined] } },
+        { $set: { workspace: workspaceId } }
+    );
+};
+
+const touchWorkspaceAccess = async (workspaceId) => {
+    await Workspace.updateOne({ _id: workspaceId }, { $set: { lastAccessedAt: new Date() } });
+};
 
 export const getAllTasks = async (req, res) => {
     const { filter = 'today' } = req.query;
@@ -29,26 +66,141 @@ export const getAllTasks = async (req, res) => {
 
     const query = {
         user: userId,
-        ...(startDate ? { createdAt: { $gte: startDate } } : {}),
+        ...(startDate ? { createdAt: { $gte: startDate } } : {})
     };
+    const activityStartDate = new Date(now);
+    activityStartDate.setUTCHours(0, 0, 0, 0);
+    activityStartDate.setUTCDate(activityStartDate.getUTCDate() - 13);
 
     try {
-        const result = await Task.aggregate([
-            { $match: query },
-            {
-                $facet: {
-                    tasks: [{$sort: { createdAt: -1 }}],
-                    activeCount: [{$match: { status: "active" }}, {$count: "count" }],
-                    completedCount: [{$match: { status: "completed" }}, {$count: "count" }]  
+        const workspace = await resolveWorkspaceForRequest(userId, req.query.workspaceId);
+        if (!workspace) {
+            return res.status(404).json({ message: "Workspace not found" });
+        }
+
+        await migrateLegacyTasksToWorkspace(userId, workspace._id);
+        query.workspace = workspace._id;
+
+        const [workspaceResult, userSummaryResult, activityCreatedResult, activityCompletedResult] = await Promise.all([
+            Task.aggregate([
+                { $match: query },
+                {
+                    $facet: {
+                        tasks: [{$sort: { createdAt: -1 }}],
+                        todoCount: [{$match: { status: { $in: ["todo", "active"] } }}, {$count: "count" }],
+                        inProgressCount: [{$match: { status: "in_progress" }}, {$count: "count" }],
+                        completedCount: [{$match: { status: "completed" }}, {$count: "count" }]  
+                    }
                 }
-            }
-        ]);   
+            ]),
+            Task.aggregate([
+                {
+                    $match: {
+                        user: userId,
+                    },
+                },
+                {
+                    $facet: {
+                        todoCount: [{$match: { status: { $in: ["todo", "active"] } }}, {$count: "count" }],
+                        inProgressCount: [{$match: { status: "in_progress" }}, {$count: "count" }],
+                        completedCount: [{$match: { status: "completed" }}, {$count: "count" }],
+                    },
+                },
+            ]),
+            Task.aggregate([
+                {
+                    $match: {
+                        user: userId,
+                        createdAt: { $gte: activityStartDate },
+                    },
+                },
+                {
+                    $group: {
+                        _id: {
+                            $dateToString: {
+                                format: "%Y-%m-%d",
+                                date: "$createdAt",
+                            },
+                        },
+                        count: { $sum: 1 },
+                    },
+                },
+            ]),
+            Task.aggregate([
+                {
+                    $match: {
+                        user: userId,
+                        completedAt: {
+                            $ne: null,
+                            $gte: activityStartDate,
+                        },
+                    },
+                },
+                {
+                    $group: {
+                        _id: {
+                            $dateToString: {
+                                format: "%Y-%m-%d",
+                                date: "$completedAt",
+                            },
+                        },
+                        count: { $sum: 1 },
+                    },
+                },
+            ]),
+        ]);
         
-        const tasks = result[0].tasks;
-        const activeCount = result[0].activeCount[0]?.count || 0;
-        const completedCount = result[0].completedCount[0]?.count || 0;
+        const tasks = workspaceResult[0].tasks.map((task) => ({
+            ...task,
+            status: task.status === "active" ? "todo" : task.status,
+        }));
+        const todoCount = workspaceResult[0].todoCount[0]?.count || 0;
+        const inProgressCount = workspaceResult[0].inProgressCount[0]?.count || 0;
+        const completedCount = workspaceResult[0].completedCount[0]?.count || 0;
+        const userTodoCount = userSummaryResult[0].todoCount[0]?.count || 0;
+        const userInProgressCount = userSummaryResult[0].inProgressCount[0]?.count || 0;
+        const userCompletedCount = userSummaryResult[0].completedCount[0]?.count || 0;
+        const createdByDate = new Map(activityCreatedResult.map((item) => [item._id, item.count]));
+        const completedByDate = new Map(activityCompletedResult.map((item) => [item._id, item.count]));
+        const userActivitySeries = [];
+
+        for (let i = 13; i >= 0; i -= 1) {
+            const day = new Date(now);
+            day.setUTCHours(0, 0, 0, 0);
+            day.setUTCDate(day.getUTCDate() - i);
+
+            const key = day.toISOString().slice(0, 10);
+            const createdCount = createdByDate.get(key) || 0;
+            const completedCount = completedByDate.get(key) || 0;
+
+            userActivitySeries.push({
+                key,
+                label: day.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }),
+                createdCount,
+                completedCount,
+                netFlow: completedCount - createdCount,
+            });
+        }
+
+        await touchWorkspaceAccess(workspace._id);
         
-        res.status(200).json({ tasks, activeCount, completedCount }); 
+        res.status(200).json({
+            tasks,
+            todoCount,
+            inProgressCount,
+            completedCount,
+            userSummary: {
+                todoCount: userTodoCount,
+                inProgressCount: userInProgressCount,
+                completedCount: userCompletedCount,
+                totalCount: userTodoCount + userInProgressCount + userCompletedCount,
+            },
+            userActivitySeries,
+            workspace: {
+                id: workspace._id,
+                name: workspace.name,
+            },
+        }); 
     } catch (error) {
         console.error("Error fetching tasks:", error);
         res.status(500).json({ message: "Server error while fetching tasks" });
@@ -57,18 +209,27 @@ export const getAllTasks = async (req, res) => {
 
 export const createTask = async (req, res) => {
     try {
-        const {title} = req.body;
+        const {title, workspaceId} = req.body;
 
         if (!title || !title.trim()) {
             return res.status(400).json({ message: "Task title is required" });
         }
 
+        const workspace = await resolveWorkspaceForRequest(req.user._id, workspaceId);
+        if (!workspace) {
+            return res.status(404).json({ message: "Workspace not found" });
+        }
+
+        await migrateLegacyTasksToWorkspace(req.user._id, workspace._id);
+
         const task = new Task({
             user: req.user._id,
+            workspace: workspace._id,
             title: title.trim(),
         });
 
         const newTask = await task.save();
+        await touchWorkspaceAccess(workspace._id);
         res.status(201).json(newTask);
     }
     catch (error) {
@@ -79,30 +240,51 @@ export const createTask = async (req, res) => {
 
 export const updateTask = async (req, res) => {
     try {
-        const { title, status, completedAt } = req.body;
+        const { title, status, completedAt, workspaceId } = req.body;
         const updates = {};
+        let normalizedStatus;
+
+        const workspace = await resolveWorkspaceForRequest(req.user._id, workspaceId || req.query.workspaceId);
+        if (!workspace) {
+            return res.status(404).json({ message: "Workspace not found" });
+        }
+
+        await migrateLegacyTasksToWorkspace(req.user._id, workspace._id);
 
         if (typeof title === "string") {
             updates.title = title.trim();
         }
 
         if (typeof status === "string") {
-            updates.status = status;
+            normalizedStatus = status === "active" ? "todo" : status;
+
+            if (!["todo", "in_progress", "completed"].includes(normalizedStatus)) {
+                return res.status(400).json({ message: "Invalid task status" });
+            }
+
+            updates.status = normalizedStatus;
+
+            if (normalizedStatus === "completed") {
+                updates.completedAt = typeof completedAt === "string" ? completedAt : new Date().toISOString();
+            } else {
+                updates.completedAt = null;
+            }
         }
 
-        if (completedAt === null || typeof completedAt === "string") {
+        if (normalizedStatus === undefined && (completedAt === null || typeof completedAt === "string")) {
             updates.completedAt = completedAt;
         }
 
         const updateTask = await Task.findOneAndUpdate(
-            { _id: req.params.id, user: req.user._id },
+            { _id: req.params.id, user: req.user._id, workspace: workspace._id },
             updates,
-            { new : true}   
+            { new : true, runValidators: true }   
         );
 
         if (!updateTask) {
             return res.status(404).json({ message: "Task not found" });
         }
+        await touchWorkspaceAccess(workspace._id);
         res.status(200).json(updateTask);
     } catch (error) {
         console.error("Error updating task:", error);
@@ -112,11 +294,19 @@ export const updateTask = async (req, res) => {
 
 export const deleteTask = async (req, res) => {
     try {
-        const deleteTask = await Task.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+        const workspace = await resolveWorkspaceForRequest(req.user._id, req.query.workspaceId);
+        if (!workspace) {
+            return res.status(404).json({ message: "Workspace not found" });
+        }
+
+        await migrateLegacyTasksToWorkspace(req.user._id, workspace._id);
+
+        const deleteTask = await Task.findOneAndDelete({ _id: req.params.id, user: req.user._id, workspace: workspace._id });
 
         if (!deleteTask) {
             return res.status(404).json({ message: "Task not found" });
         }
+        await touchWorkspaceAccess(workspace._id);
         res.status(200).json(deleteTask);
     } catch (error) {
         console.error("Error deleting task:", error);

@@ -3,6 +3,7 @@ import http from "http";
 import tasksRoute from "./routes/tasksRouters.js";
 import authRoute from "./routes/authRouters.js";
 import chatRoute from "./routes/chatRouters.js";
+import workspacesRoute from "./routes/workspacesRouters.js";
 import { connectDB } from "./config/db.js";
 import dotenv from "dotenv";
 import cors from "cors";
@@ -45,6 +46,7 @@ app.use(
 app.use("/api/tasks", tasksRoute);
 app.use("/api/auth", authRoute);
 app.use("/api/chat", chatRoute);
+app.use("/api/workspaces", workspacesRoute);
 
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(FRONTEND_DIST_DIR));

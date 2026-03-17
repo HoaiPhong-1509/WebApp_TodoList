@@ -1,6 +1,7 @@
 export const FilterType = {
     all: 'All',
-    active: 'Active',
+    todo: 'To Do',
+    in_progress: 'In Progress',
     completed: 'Completed'
 }
 

@@ -3,6 +3,7 @@ import { createAuthToken, hashPassword, verifyPassword } from "../utils/auth.js"
 import { isValidEmailFormat, validateEmailDeliverability } from "../utils/emailValidation.js";
 import crypto from "crypto";
 import { sendVerificationEmail } from "../services/emailService.js";
+import { ensureDefaultWorkspace } from "./workspacesControllers.js";
 
 const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
 const EMAIL_CONTROLLER_OVERHEAD_MS = 3_000;
@@ -146,6 +147,8 @@ export const register = async (req, res) => {
       verificationToken: verification.hashedToken,
       verificationTokenExpiresAt: verification.expiresAt,
     });
+
+    await ensureDefaultWorkspace(user._id);
     console.info("[auth][register] user created in DB", { ms: Date.now() - dbStart, userId: user._id });
 
     let emailResult;

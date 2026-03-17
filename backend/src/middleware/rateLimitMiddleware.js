@@ -1,4 +1,4 @@
-import { rateLimit } from "express-rate-limit";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 
 const jsonMessage = (message) => ({ message });
 
@@ -31,7 +31,7 @@ export const registerEmailLimiter = rateLimit({
   keyGenerator: (req) => {
     const rawEmail = req?.body?.email;
     if (!rawEmail || typeof rawEmail !== "string") {
-      return `ip:${req.ip}`;
+      return `ip:${ipKeyGenerator(req.ip)}`;
     }
     return `register-email:${rawEmail.trim().toLowerCase()}`;
   },

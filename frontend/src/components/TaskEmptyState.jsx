@@ -13,8 +13,10 @@ const TaskEmptyState = ({filter}) => {
 
           <h3 className='font-mdium text-foreground'>
             {
-              filter === 'active' ?
-              "No active tasks" :
+              filter === 'todo' ?
+              "No to-do tasks" :
+              filter === 'in_progress' ?
+              "No tasks in progress" :
               filter === 'completed' ?
               "No completed tasks" :
               "No tasks found"
@@ -23,7 +25,8 @@ const TaskEmptyState = ({filter}) => {
 
           <p className='text-sm text-muted-foreground'>
             {filter === 'all' ? "Add the first task to get started" : 
-            `Try changing the filter or add a new task ${filter === 'active' ? "to see it here" : 
+            `Try changing the filter or add a new task ${filter === 'todo' ? "to see it here" : 
+            filter === 'in_progress' ? "and move it to In Progress to see it here" :
             filter === 'completed' ? "and mark it as completed to see it here" : ""}`}
             
           </p>

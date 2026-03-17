@@ -1,8 +1,10 @@
 import React from 'react'
 
-const Footer = ({completedTasksCount = 0, activeTasksCount = 0}) => {
+const Footer = ({ completedTasksCount = 0, inProgressTasksCount = 0, todoTasksCount = 0 }) => {
+  const pendingTasksCount = todoTasksCount + inProgressTasksCount;
+
   return <>
-    {completedTasksCount + activeTasksCount > 0 && (
+    {completedTasksCount + pendingTasksCount > 0 && (
       <div className='text-center'>
         <p className='text-sm text-muted-foreground'>
           {
@@ -10,15 +12,15 @@ const Footer = ({completedTasksCount = 0, activeTasksCount = 0}) => {
               <>
                 Great! You have completed {completedTasksCount} task{completedTasksCount > 1 ? 's' : ''}
                 {
-                  activeTasksCount > 0 && `, ${activeTasksCount} pending`
+                  pendingTasksCount > 0 && `, ${pendingTasksCount} pending`
                 }
               </>
             )
           }
 
-          {completedTasksCount === 0 && activeTasksCount > 0 && (
+          {completedTasksCount === 0 && pendingTasksCount > 0 && (
             <>
-              Let's start with {activeTasksCount} pending task{activeTasksCount > 1 ? 's' : ''}
+              Let's start with {pendingTasksCount} pending task{pendingTasksCount > 1 ? 's' : ''}
             </>
           )}
         </p>

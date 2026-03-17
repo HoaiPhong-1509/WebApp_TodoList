@@ -8,13 +8,20 @@ import { toast } from 'sonner';
 import api from '@/lib/axios';
 
 
-const TaskCard = ({ task, index, handleTaskChanged }) => {
+const TaskCard = ({ task, index, handleTaskChanged, workspaceId }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [updateTaskTitle, setUpdateTaskTitle] = useState(task.title || '');
 
   const deleteTask = async (taskId) => {
+    if (!workspaceId) {
+      toast.error('Please select a workspace first.');
+      return;
+    }
+
     try {
-      await api.delete(`/tasks/${taskId}`);
+      await api.delete(`/tasks/${taskId}`, {
+        params: { workspaceId },
+      });
       toast.success('Task deleted successfully');
       handleTaskChanged?.();
 
@@ -25,10 +32,16 @@ const TaskCard = ({ task, index, handleTaskChanged }) => {
   };
 
   const updateTask = async () => {
+    if (!workspaceId) {
+      toast.error('Please select a workspace first.');
+      return;
+    }
+
     try {
       setIsEditing(false);
       await api.put(`/tasks/${task._id}`, { 
-        title: updateTaskTitle 
+        title: updateTaskTitle,
+        workspaceId,
       });
       toast.success('Task updated successfully');
       handleTaskChanged();
@@ -39,22 +52,33 @@ const TaskCard = ({ task, index, handleTaskChanged }) => {
   };
 
   const toggleTaskCompleteButton = async () => {
-    try {
-      if (task.status === 'active') {
-        await api.put(`/tasks/${task._id}`, {
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-        });
+    if (!workspaceId) {
+      toast.error('Please select a workspace first.');
+      return;
+    }
 
-        toast.success(`${task.title} has been completed`);
-      }
-      else {
-        await api.put(`/tasks/${task._id}`, {
-          status: 'active',
-          completedAt: null,
-        });
-        toast.success(`${task.title} has been marked as active`);
-      }
+    try {
+      const normalizedStatus = task.status === 'active' ? 'todo' : task.status;
+      const statusFlow = {
+        todo: 'in_progress',
+        in_progress: 'completed',
+        completed: 'todo',
+      };
+
+      const nextStatus = statusFlow[normalizedStatus] || 'todo';
+
+      await api.put(`/tasks/${task._id}`, {
+        status: nextStatus,
+        workspaceId,
+      });
+
+      const statusLabels = {
+        todo: 'To Do',
+        in_progress: 'In Progress',
+        completed: 'Completed',
+      };
+
+      toast.success(`Task "${task.title}" moved to ${statusLabels[nextStatus]}.`);
 
       handleTaskChanged();
     } catch (error) {
@@ -82,14 +106,20 @@ const TaskCard = ({ task, index, handleTaskChanged }) => {
         variant='ghost'
         size='icon'
         className={cn(
-          'flex-shrink-0 size-8 rounded-full transition-all duration-200',
+          'flex-shrink-0 size-8 rounded-full leading-none transition-all duration-200',
           task.status === 'completed' ? 'text-success hover:text-success/80'
+          : task.status === 'in_progress' ? 'text-primary bg-primary/10 ring-1 ring-primary/20 hover:bg-primary/15 hover:ring-primary/30'
           : 'text-muted-foreground hover:text-primary'
         )}
         onClick={toggleTaskCompleteButton}
       >
         {task.status === 'completed' ? (
           <CheckCircle2 className='size-5'/>
+        ) : task.status === 'in_progress' ? (
+          <span className='relative block size-5'>
+            <span className='absolute inset-0 rounded-full border-[2px] border-primary/70 animate-pulse' />
+            <span className='absolute inset-0 m-auto rounded-full size-2.5 bg-primary shadow-sm' />
+          </span>
         ) : (
           <Circle className='size-5'/>
         )}

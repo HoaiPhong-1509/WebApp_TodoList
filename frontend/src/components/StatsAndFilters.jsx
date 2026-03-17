@@ -4,7 +4,13 @@ import { FilterType } from '@/lib/data';
 import { Button } from './ui/button';
 import { Filter } from 'lucide-react';
 
-const StatsAndFilters = ({completedTasksCount = 0, activeTasksCount = 0, filter = 'all', setFilter}) => {
+const StatsAndFilters = ({
+  completedTasksCount = 0,
+  inProgressTasksCount = 0,
+  todoTasksCount = 0,
+  filter = 'all',
+  setFilter
+}) => {
   return (
     <div className='flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between'>
 
@@ -14,7 +20,13 @@ const StatsAndFilters = ({completedTasksCount = 0, activeTasksCount = 0, filter 
           variant='secondary'
           className='bg-white/50 text-accent-foreground border-info/20'
         >
-          {activeTasksCount} {FilterType.active}
+          {todoTasksCount} {FilterType.todo}
+        </Badge>
+        <Badge
+          variant='secondary'
+          className='bg-white/50 text-accent-foreground border-primary/20'
+        >
+          {inProgressTasksCount} {FilterType.in_progress}
         </Badge>
         <Badge
           variant='secondary'

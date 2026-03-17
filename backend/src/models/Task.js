@@ -8,6 +8,12 @@ const taskSchema = new mongoose.Schema(
             required: true,
             index: true,
         },
+        workspace: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Workspace",
+            default: null,
+            index: true,
+        },
         title: {
             type: String,
             required: true,
@@ -15,8 +21,8 @@ const taskSchema = new mongoose.Schema(
         },
         status: {
             type: String,
-            enum: ["active", "completed"],
-            default: "active"
+            enum: ["todo", "in_progress", "completed"],
+            default: "todo"
         },
         completedAt: {
             type: Date,
@@ -27,6 +33,8 @@ const taskSchema = new mongoose.Schema(
         timestamps: true,
     }
 );
+
+taskSchema.index({ user: 1, workspace: 1, createdAt: -1 });
 
 const Task = mongoose.model("Task", taskSchema);
 export default Task;
