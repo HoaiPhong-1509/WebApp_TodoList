@@ -20,8 +20,7 @@
     "express-rate-limit": "^8.3.1",
     "mongoose": "^9.2.1",
     "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3",
-    "webapp_todolist": "file:.."
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

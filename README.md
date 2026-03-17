@@ -54,23 +54,17 @@ PORT=5001
 JWT_SECRET=your_strong_secret
 APP_BASE_URL=https://your-app.onrender.com
 
-# SMTP settings (real email sending)
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_SECURE=false
-MAIL_USER=your_email@gmail.com
-MAIL_PASS=your_app_password
-MAIL_FROM=TodoList <your_email@gmail.com>
+# Email provider (production): Brevo API
+BREVO_API_KEY=xkeysib-xxxxxxxxxxxxxxxx
+BREVO_SENDER_EMAIL=your_verified_sender@example.com
+# Optional display name
+BREVO_SENDER_NAME=TodoList
 
-# Timeout (ms) for each SMTP phase AND the controller-level email budget.
-# Recommended: 10000 (10 s) on Render free tier to stay well under the 60 s axios limit.
+# Timeout (ms) for email API requests.
+# Recommended: 10000 (10 s).
 MAIL_SEND_TIMEOUT_MS=10000
 
-# Force SMTP connection via IPv4 first (recommended on Render/Railway/Fly if IPv6 egress is unstable)
-# Default: true in production, false in development when omitted.
-MAIL_FORCE_IPV4=true
-
-# Dev-only fallback for local testing when SMTP is unavailable
+# Dev-only fallback for local testing when email provider is unavailable
 # Do not enable this in production
 RETURN_VERIFICATION_URL=false
 
@@ -80,68 +74,47 @@ RETURN_VERIFICATION_URL=false
 
 Ghi chú:
 
-- Nếu chưa cấu hình SMTP, backend dùng chế độ mock mail để phục vụ test local.
-- Để gửi email thật, cần cấu hình đầy đủ biến `MAIL_*` như trên.
-- Ở môi trường production, thiếu cấu hình SMTP thì backend sẽ báo lỗi khởi động để tránh chạy sai luồng xác minh email.
+- Nếu có `BREVO_API_KEY`, backend gửi email thật qua Brevo API.
+- Nếu không có `BREVO_API_KEY`: dev/local dùng mock mail; production sẽ báo lỗi cấu hình email.
 - `RETURN_VERIFICATION_URL` chỉ có tác dụng ở môi trường dev/local; production luôn tắt để không bypass xác minh email.
 
 ## Checklist chạy thực tế
 
 - Đổi `JWT_SECRET` thành chuỗi bí mật mạnh, không dùng giá trị mặc định.
 - Cấu hình `APP_BASE_URL` là domain frontend thật (ví dụ `https://your-app.onrender.com`).
-- Cấu hình SMTP thật (Gmail SMTP, SendGrid SMTP, Mailgun SMTP...).
-- Bật TLS đúng theo nhà cung cấp mail (`MAIL_SECURE`, `MAIL_PORT`).
-- Cho phép DNS outbound từ server backend để kiểm tra MX record.
-- Nếu dùng Gmail App Password, có thể dán dạng có khoảng trắng; backend sẽ tự chuẩn hóa trước khi gửi mail.
+- Cấu hình Brevo (`BREVO_API_KEY`, `BREVO_SENDER_EMAIL`) để gửi mail production ổn định qua HTTPS.
 - Đặt `MAIL_SEND_TIMEOUT_MS=10000` để giới hạn thời gian gửi mail, tránh request bị treo quá lâu.
 
-## Troubleshooting: Render + Gmail SMTP timeout
+## Troubleshooting: Production email
 
 ### Triệu chứng
 
-Sau khi bấm **Register**, frontend hiển thị:
-
-> "Request timed out. If your account was created, please continue from login and resend verification email."
-
-### Nguyên nhân thường gặp
-
-| Vấn đề | Giải thích |
-|---|---|
-| Gmail SMTP chậm / cold start | Render free tier có thể mất 10–20 s để thiết lập kết nối TLS tới `smtp.gmail.com:587`. |
-| `MAIL_SEND_TIMEOUT_MS` chưa được đặt | Mặc định backend dùng 10 s (production), nhưng nên khai báo rõ ràng trên Render. |
-| `APP_BASE_URL` sai | Link verify trong email trỏ sai domain → người dùng click nhưng không xác minh được. |
-| Gmail App Password có khoảng trắng | Backend tự loại bỏ khoảng trắng, nhưng nên kiểm tra lại giá trị trên Render. |
-| `ENETUNREACH ... 2607:...` trong logs | Hạ tầng không đi được IPv6 outbound tới Gmail SMTP, cần ép SMTP qua IPv4 (`MAIL_FORCE_IPV4=true`). |
-| `NODE_ENV` chưa đặt là `production` | Backend sẽ dùng mock mail thay vì SMTP thật. |
+Sau khi bấm **Register/Resend**, frontend báo timeout hoặc backend log email send failed.
 
 ### Các bước kiểm tra
 
-1. Trên **Render → Environment**, kiểm tra:
+1. Trên Render Environment, kiểm tra:
    - `NODE_ENV=production`
    - `APP_BASE_URL=https://<your-service>.onrender.com` (không có dấu `/` cuối)
-   - `MAIL_HOST=smtp.gmail.com`, `MAIL_PORT=587`, `MAIL_SECURE=false`
-   - `MAIL_USER` và `MAIL_PASS` (Gmail App Password — không phải mật khẩu chính)
+   - `BREVO_API_KEY` hợp lệ
+   - `BREVO_SENDER_EMAIL` là sender đã verify trên Brevo
    - `MAIL_SEND_TIMEOUT_MS=10000`
 
 2. Kiểm tra **Render Logs** sau khi deploy:
-   - Tìm dòng `[auth][register] user created in DB` và `[auth][register] verification email sent` với trường `ms`.
-   - Nếu thấy `email send failed` với `code: EMAIL_CONTROLLER_TIMEOUT` → SMTP chậm, tăng `MAIL_SEND_TIMEOUT_MS` lên `15000`.
+   - Tìm dòng `[auth][register] verification email sent` hoặc `[auth][resend] verification email sent`.
+   - `provider` phải là `brevo`.
+   - Nếu thấy `code: EMAIL_PROVIDER_NOT_CONFIGURED`, thiếu `BREVO_API_KEY` hoặc `BREVO_SENDER_EMAIL`.
 
 3. Nếu email vẫn không đến sau khi đăng ký thành công:
    - Vào trang **Login**, nhập email đã đăng ký, bấm **Resend Verification Email**.
    - Kiểm tra hộp thư Spam/Junk.
-
-4. Kiểm tra Gmail App Password:
-   - Truy cập [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
-   - Tạo App Password mới cho ứng dụng này.
-   - Bật 2-Step Verification trên tài khoản Gmail trước.
 
 ### Luồng hoạt động chuẩn
 
 ```
 [User] Register → [Backend] Tạo user (isVerified=false) → Gửi email xác minh
                                                          ↓
-                              [Nếu SMTP timeout/lỗi] → Trả 201 emailDeliveryFailed=true
+                              [Nếu email provider timeout/lỗi] → Trả 201 emailDeliveryFailed=true
                                                          ↓
                          [Frontend] Redirect /login?resend=1 → User bấm "Resend Verification Email"
                                                          ↓

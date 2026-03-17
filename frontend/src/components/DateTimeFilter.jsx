@@ -15,21 +15,8 @@ import {
 	CommandList,
 } from "@/components/ui/command"
 
-const DateTimeFilter = ({ value: controlledValue, onValueChange, dateQuery, setDateQuery }) => {
+const DateTimeFilter = ({ onValueChange, dateQuery, setDateQuery }) => {
 	const [open, setOpen] = React.useState(false)
-	const [uncontrolledValue, setUncontrolledValue] = React.useState("all")
-
-	const value = controlledValue ?? uncontrolledValue
-	const setValue = (nextValue) => {
-		if (controlledValue === undefined) {
-			setUncontrolledValue(nextValue)
-		}
-		onValueChange?.(nextValue)
-	}
-
-	const selectedLabel = React.useMemo(() => {
-		return options.find((o) => o.value === value)?.label ?? "all"
-	}, [value])
 
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
@@ -60,7 +47,7 @@ const DateTimeFilter = ({ value: controlledValue, onValueChange, dateQuery, setD
 								value={opt.value}
 								onSelect={(currentValue) => {
 									setDateQuery(currentValue)
-									setValue(currentValue)
+									onValueChange?.(currentValue)
 									setOpen(false)
 								}}
 							>

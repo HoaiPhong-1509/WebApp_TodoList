@@ -169,7 +169,7 @@ export const register = async (req, res) => {
 
       const response = {
         message:
-          "Registration successful, but we could not send the verification email right now. Please use Resend Verification Email on the login screen.",
+          "Registration successful, but we could not send the verification email right now. Please use Resend Verification Email on the login screen to try again.",
         emailDeliveryFailed: true,
       };
 
