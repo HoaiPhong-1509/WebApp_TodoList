@@ -1,6 +1,6 @@
 import User from "../models/User.js";
 import { createAuthToken, hashPassword, verifyPassword } from "../utils/auth.js";
-import { hasMxRecords, isValidEmailFormat } from "../utils/emailValidation.js";
+import { isValidEmailFormat, validateEmailDeliverability } from "../utils/emailValidation.js";
 import crypto from "crypto";
 import { sendVerificationEmail } from "../services/emailService.js";
 
@@ -119,9 +119,14 @@ export const register = async (req, res) => {
       return res.status(400).json({ message: "Invalid email format" });
     }
 
-    const emailHasMx = await hasMxRecords(normalizedEmail);
-    if (!emailHasMx) {
-      return res.status(400).json({ message: "Email domain cannot receive mail" });
+    const emailValidation = await validateEmailDeliverability(normalizedEmail);
+    if (!emailValidation.ok) {
+      const message = emailValidation.reason === "invalid_domain"
+        ? "Email domain does not exist or cannot receive mail"
+        : emailValidation.reason === "disposable_domain"
+          ? "Disposable email addresses are not allowed"
+          : "Email address appears invalid or cannot receive mail";
+      return res.status(400).json({ message });
     }
 
     const existingUser = await User.findOne({ email: normalizedEmail });
@@ -273,6 +278,11 @@ export const resendVerificationEmail = async (req, res) => {
 
     if (!isValidEmailFormat(normalizedEmail)) {
       return res.status(400).json({ message: "Invalid email format" });
+    }
+
+    const emailValidation = await validateEmailDeliverability(normalizedEmail);
+    if (!emailValidation.ok) {
+      return res.status(400).json({ message: "Email address appears invalid or cannot receive mail" });
     }
 
     const user = await User.findOne({ email: normalizedEmail });

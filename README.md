@@ -64,6 +64,23 @@ BREVO_SENDER_NAME=TodoList
 # Recommended: 10000 (10 s).
 MAIL_SEND_TIMEOUT_MS=10000
 
+# Optional DNS checks for email deliverability
+# MX lookup timeout (ms)
+MX_LOOKUP_TIMEOUT_MS=2500
+# Default: false (strict mode)
+EMAIL_DNS_ALLOW_ON_TIMEOUT=false
+# Default: false (strict mode)
+EMAIL_DNS_ALLOW_ON_ERROR=false
+
+# Optional mailbox-level validation via Abstract API
+# https://www.abstractapi.com/email-verification-validation-api
+EMAIL_VALIDATION_API_KEY=
+EMAIL_VALIDATION_TIMEOUT_MS=4000
+# If true, register/resend requires validator service to be configured
+EMAIL_REQUIRE_PROVIDER_VALIDATION=true
+# If false, validator "unknown" results are rejected
+EMAIL_ALLOW_UNKNOWN_PROVIDER_RESULT=false
+
 # Dev-only fallback for local testing when email provider is unavailable
 # Do not enable this in production
 RETURN_VERIFICATION_URL=false
@@ -76,6 +93,9 @@ Ghi chú:
 
 - Nếu có `BREVO_API_KEY`, backend gửi email thật qua Brevo API.
 - Nếu không có `BREVO_API_KEY`: dev/local dùng mock mail; production sẽ báo lỗi cấu hình email.
+- Khi register/resend, backend kiểm tra định dạng email + DNS (MX, fallback A/AAAA).
+- Domain giả/không tồn tại (ví dụ `abc@khongtontai.invalid`) sẽ bị từ chối.
+- Để chặn mailbox giả trên domain thật (ví dụ địa chỉ ngẫu nhiên `...@gmail.com`), cần bật `EMAIL_VALIDATION_API_KEY` và cấu hình strict như trên.
 - `RETURN_VERIFICATION_URL` chỉ có tác dụng ở môi trường dev/local; production luôn tắt để không bypass xác minh email.
 
 ## Checklist chạy thực tế

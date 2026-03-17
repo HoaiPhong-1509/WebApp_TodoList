@@ -17,6 +17,27 @@ export const loginLimiter = createLimiter({
   message: "Too many login attempts. Please try again later.",
 });
 
+export const registerIpLimiter = createLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  message: "Too many registration attempts from this IP. Please try again later.",
+});
+
+export const registerEmailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const rawEmail = req?.body?.email;
+    if (!rawEmail || typeof rawEmail !== "string") {
+      return `ip:${req.ip}`;
+    }
+    return `register-email:${rawEmail.trim().toLowerCase()}`;
+  },
+  message: jsonMessage("Too many registration attempts for this email. Please try again later."),
+});
+
 export const verifyEmailLimiter = createLimiter({
   windowMs: 15 * 60 * 1000,
   max: 30,
