@@ -122,6 +122,12 @@ const buildAiInsights = ({ total, todo, inProgress, completed, tasks }) => {
   return insights;
 };
 
+const IMPACT_STYLES = {
+  high: 'bg-rose-100 text-rose-700',
+  medium: 'bg-amber-100 text-amber-700',
+  low: 'bg-emerald-100 text-emerald-700',
+};
+
 const ActivityLineChart = ({ series }) => {
   const width = 460;
   const height = 220;
@@ -303,6 +309,7 @@ const HomePage = () => {
   const [userCompletedTaskCount, setUserCompletedTaskCount] = useState(0);
   const [userTotalTaskCount, setUserTotalTaskCount] = useState(0);
   const [userActivitySeries, setUserActivitySeries] = useState([]);
+  const [aiAdvisor, setAiAdvisor] = useState(null);
   const [filter, setFilter] = useState('all');
   const [dateQuery, setDateQuery] = useState('today');
   const [page, setPage] = useState(1);
@@ -326,6 +333,7 @@ const HomePage = () => {
       setUserCompletedTaskCount(0);
       setUserTotalTaskCount(0);
       setUserActivitySeries([]);
+      setAiAdvisor(null);
       return;
     }
 
@@ -345,6 +353,7 @@ const HomePage = () => {
       setUserCompletedTaskCount(res.data.userSummary?.completedCount || 0);
       setUserTotalTaskCount(res.data.userSummary?.totalCount || 0);
       setUserActivitySeries(res.data.userActivitySeries || []);
+      setAiAdvisor(res.data.aiAdvisor || null);
 
     } catch (error) {
       console.error('Error fetching tasks:', error);
@@ -472,6 +481,19 @@ const HomePage = () => {
     completed: completedTaskCount,
     tasks: taskBuffer,
   });
+  const aiRecommendations = aiAdvisor?.recommendations?.length
+    ? aiAdvisor.recommendations
+    : aiInsights.map((insight, index) => ({
+      id: `fallback-${index}`,
+      title: `Insight ${index + 1}`,
+      advice: insight,
+      reason: 'Fallback recommendation generated on client while backend advice is unavailable.',
+      impact: 'low',
+    }));
+  const aiCompletionRate = aiAdvisor?.metrics?.completionRate ?? activityCompletionRate;
+  const aiDominantTopic = aiAdvisor?.metrics?.dominantTopic || 'General';
+  const aiStaleCount = (aiAdvisor?.metrics?.staleTodoCount || 0) + (aiAdvisor?.metrics?.staleInProgressCount || 0);
+  const aiProviderLabel = aiAdvisor?.provider === 'groq' ? 'Groq' : 'Rule-based fallback';
   const selectedWorkspace = workspaces.find((workspace) => workspace._id === selectedWorkspaceId)
     || workspaceResults.find((workspace) => workspace._id === selectedWorkspaceId)
     || workspaces[0];
@@ -689,7 +711,7 @@ const HomePage = () => {
             <Card className='border-0 bg-white/30 shadow-custom-lg backdrop-blur-sm'>
               <CardHeader>
                 <CardTitle className='text-xl'>Workflow Snapshot</CardTitle>
-                <CardDescription>Task totals across all process stages</CardDescription>
+                <CardDescription>Task totals across all process stages and workspaces</CardDescription>
               </CardHeader>
               <CardContent className='grid grid-cols-2 gap-3'>
                 {[
@@ -713,20 +735,44 @@ const HomePage = () => {
                   AI Work Science Advisor
                 </CardTitle>
                 <CardDescription>
-                  Frontend AI prototype: recommendations are generated from your current tasks.
+                  Khuyến nghị được tạo từ dữ liệu task trên tất cả workspace (7 ngày gần nhất).
                 </CardDescription>
+                <Badge className='w-fit border-0 bg-slate-200 text-slate-700'>Source: {aiProviderLabel}</Badge>
               </CardHeader>
-              <CardContent className='space-y-3'>
-                {aiInsights.map((insight, index) => (
+              <CardContent className='space-y-4'>
+                <div className='grid grid-cols-3 gap-2 text-center'>
+                  <div className='rounded-lg border border-violet-200/70 bg-white/80 p-2'>
+                    <p className='text-[11px] text-slate-500'>Completion</p>
+                    <p className='text-lg font-bold text-slate-900'>{aiCompletionRate}%</p>
+                  </div>
+                  <div className='rounded-lg border border-violet-200/70 bg-white/80 p-2'>
+                    <p className='text-[11px] text-slate-500'>Dominant topic</p>
+                    <p className='text-sm font-bold text-slate-900'>{aiDominantTopic}</p>
+                  </div>
+                  <div className='rounded-lg border border-violet-200/70 bg-white/80 p-2'>
+                    <p className='text-[11px] text-slate-500'>Stale tasks</p>
+                    <p className='text-lg font-bold text-slate-900'>{aiStaleCount}</p>
+                  </div>
+                </div>
+
+                {aiRecommendations.map((item, index) => (
                   <div
-                    key={index}
+                    key={item.id || index}
                     className='rounded-xl border border-primary/20 bg-transparent p-3 text-sm text-slate-700'
                   >
-                    <div className='mb-2 flex items-center gap-2 text-primary'>
-                      <Sparkles className='size-4' />
-                      Insight {index + 1}
+                    <div className='mb-2 flex items-center justify-between gap-2 text-primary'>
+                      <div className='flex items-center gap-2'>
+                        <Sparkles className='size-4' />
+                        <span className='font-semibold'>{item.title || `Insight ${index + 1}`}</span>
+                      </div>
+                      <Badge className={`${IMPACT_STYLES[item.impact] || IMPACT_STYLES.low} border-0`}>
+                        {(item.impact || 'low').toUpperCase()}
+                      </Badge>
                     </div>
-                    <p>{insight}</p>
+                    <p>{item.advice}</p>
+                    {item.reason && (
+                      <p className='mt-2 text-xs text-slate-500'>{item.reason}</p>
+                    )}
                   </div>
                 ))}
               </CardContent>

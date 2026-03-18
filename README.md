@@ -87,12 +87,21 @@ RETURN_VERIFICATION_URL=false
 
 # Optional: restrict CORS to specific origins (comma-separated)
 # CORS_ORIGINS=https://your-app.onrender.com
+
+# Groq advisor (optional, fallback to rule-based if not set)
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxx
+# Optional: model for AI advisor
+GROQ_ADVISOR_MODEL=llama-3.1-8b-instant
+# Optional timeout (ms) for Groq request
+GROQ_TIMEOUT_MS=12000
 ```
 
 Ghi chú:
 
 - Nếu có `BREVO_API_KEY`, backend gửi email thật qua Brevo API.
 - Nếu không có `BREVO_API_KEY`: dev/local dùng mock mail; production sẽ báo lỗi cấu hình email.
+- Nếu có `GROQ_API_KEY`, phần AI advisor sẽ gọi Groq API để sinh khuyến nghị theo dữ liệu task/workflow.
+- Nếu không có `GROQ_API_KEY` hoặc API bị lỗi/timeout, hệ thống tự fallback về advisor rule-based để UI vẫn hoạt động.
 - Khi register/resend, backend kiểm tra định dạng email + DNS (MX, fallback A/AAAA).
 - Domain giả/không tồn tại (ví dụ `abc@khongtontai.invalid`) sẽ bị từ chối.
 - Để chặn mailbox giả trên domain thật (ví dụ địa chỉ ngẫu nhiên `...@gmail.com`), cần bật `EMAIL_VALIDATION_API_KEY` và cấu hình strict như trên.
