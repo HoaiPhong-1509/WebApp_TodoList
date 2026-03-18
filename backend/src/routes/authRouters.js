@@ -1,5 +1,5 @@
 import express from "express";
-import { login, me, register, resendVerificationEmail, verifyEmail } from "../controllers/authControllers.js";
+import { changePassword, login, me, register, resendVerificationEmail, verifyEmail } from "../controllers/authControllers.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
 import {
 	loginLimiter,
@@ -16,5 +16,6 @@ router.post("/login", loginLimiter, login);
 router.get("/verify-email", verifyEmailLimiter, verifyEmail);
 router.post("/resend-verification", resendVerificationLimiter, resendVerificationEmail);
 router.get("/me", requireAuth, me);
+router.post("/change-password", requireAuth, loginLimiter, changePassword);
 
 export default router;

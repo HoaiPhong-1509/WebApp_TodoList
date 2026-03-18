@@ -24,7 +24,7 @@ export const requireAuth = async (req, res, next) => {
 
     const secret = process.env.JWT_SECRET || "dev_secret_change_me";
     const payload = verifyAuthToken(token, secret);
-    const user = await User.findById(payload.userId).select("_id email name");
+    const user = await User.findById(payload.userId).select("_id email name isVerified createdAt lastPasswordChangedAt");
 
     if (!user) {
       return res.status(401).json({ message: "Authentication failed" });

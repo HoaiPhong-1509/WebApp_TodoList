@@ -65,6 +65,14 @@ const normalizeImpact = (value) => {
 
 const clampLength = (value, max) => String(value || "").trim().slice(0, max);
 
+const normalizeContextInstruction = (value) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return clampLength(value, 2600);
+};
+
 const normalizeRecommendations = (rawRecommendations) => {
   if (!Array.isArray(rawRecommendations)) {
     return [];
@@ -192,5 +200,100 @@ export const generateGroqTaskRecommendations = async ({ workspaceName, metrics, 
     model: groqConfig.model,
     metrics,
     recommendations,
+  };
+};
+
+const normalizeAssistantHistory = (history = []) => {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history
+    .slice(-8)
+    .map((entry) => {
+      const role = entry?.role === "assistant" ? "assistant" : "user";
+      const content = clampLength(entry?.content || "", 1200);
+
+      if (!content) {
+        return null;
+      }
+
+      return { role, content };
+    })
+    .filter(Boolean);
+};
+
+export const generateGroqAssistantReply = async ({ prompt, history = [], contextInstruction = "" }) => {
+  const groqConfig = getGroqConfig();
+  if (!groqConfig) {
+    return null;
+  }
+
+  const safePrompt = clampLength(prompt || "", 1600);
+  if (!safePrompt) {
+    return null;
+  }
+
+  const timeoutMs = getTimeoutMs();
+  const client = new OpenAI({ apiKey: groqConfig.apiKey, baseURL: GROQ_BASE_URL });
+
+  const conversationHistory = normalizeAssistantHistory(history);
+  const safeContextInstruction = normalizeContextInstruction(contextInstruction);
+  const systemPrompt = [
+    "Bạn là trợ lý tư vấn công việc cho ứng dụng Todo. Trả lời bằng tiếng Việt, ngắn gọn, có hành động cụ thể. Nếu thiếu dữ liệu thì nói rõ giả định và đề nghị người dùng bổ sung thông tin.",
+    "Tuyệt đối không bịa tính năng, màn hình, API hay trường dữ liệu không có trong ngữ cảnh được cung cấp.",
+    "Chỉ hướng dẫn thao tác đúng với UI/UX thực tế trong UI/UX SCHEMA nếu có. Nếu user hỏi thao tác không có trong schema này, trả lời: 'Tính năng này chưa có trên giao diện hiện tại.'",
+    safeContextInstruction,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  let completion;
+  try {
+    completion = await client.chat.completions.create(
+      {
+        model: groqConfig.model,
+        temperature: 0.3,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          ...conversationHistory,
+          {
+            role: "user",
+            content: safePrompt,
+          },
+        ],
+      },
+      {
+        timeout: timeoutMs,
+      }
+    );
+  } catch (error) {
+    if (error?.name === "AbortError" || error?.code === "ETIMEDOUT") {
+      const timeoutError = new Error(`Groq API timed out after ${timeoutMs}ms`);
+      timeoutError.code = "GROQ_TIMEOUT";
+      throw timeoutError;
+    }
+
+    const message = error?.error?.message || error?.message || "unknown error";
+    const apiError = new Error(message);
+    apiError.code = "GROQ_API_ERROR";
+    apiError.status = error?.status;
+    throw apiError;
+  }
+
+  const reply = clampLength(completion?.choices?.[0]?.message?.content || "", 3200);
+  if (!reply) {
+    const parseError = new Error("Groq returned empty assistant reply");
+    parseError.code = "GROQ_INVALID_OUTPUT";
+    throw parseError;
+  }
+
+  return {
+    provider: "groq",
+    model: groqConfig.model,
+    reply,
   };
 };

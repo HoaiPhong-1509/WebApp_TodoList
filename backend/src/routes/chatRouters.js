@@ -1,6 +1,7 @@
 import express from "express";
 import {
 	addConversationMembers,
+	chatWithAssistant,
 	createDirectConversation,
 	deleteConversation,
 	createGroupConversation,
@@ -18,6 +19,7 @@ router.use(requireAuth);
 
 router.get("/users", searchUsers);
 router.get("/conversations", getConversations);
+router.post("/assistant", chatWithAssistant);
 router.post("/conversations/direct", createDirectConversation);
 router.post("/conversations/group", createGroupConversation);
 router.post("/conversations/:id/members", addConversationMembers);

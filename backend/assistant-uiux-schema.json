@@ -1,0 +1,43 @@
+{
+  "tasks": {
+    "fields": [
+      { "name": "title", "type": "string", "required": true, "label": "Enter task title" },
+      { "name": "workspaceId", "type": "string", "required": true, "label": "Workspace (auto-selected)" }
+    ],
+    "actions": [
+      { "name": "add", "label": "Add", "location": "AddTask.jsx" },
+      { "name": "edit", "label": "Edit", "location": "TaskCard.jsx" },
+      { "name": "delete", "label": "Delete", "location": "TaskCard.jsx" },
+      { "name": "change_status", "label": "Change status (todo/in_progress/completed)", "location": "TaskCard.jsx" }
+    ],
+    "notes": "Không có description, deadline, priority, type. Chỉ nhập title và chọn workspace."
+  },
+  "workspace": {
+    "actions": [
+      { "name": "join_by_code", "label": "Join by code", "location": "UI dialog" },
+      { "name": "invite_member", "label": "Invite member (get code)", "location": "UI dialog" },
+      { "name": "approve_member", "label": "Approve member", "location": "UI dialog" }
+    ]
+  },
+  "chat": {
+    "actions": [
+      { "name": "send_message", "label": "Send", "location": "ChatPanel.jsx" },
+      { "name": "create_group", "label": "Create group", "location": "ChatPanel.jsx" },
+      { "name": "add_member", "label": "Add member", "location": "ChatPanel.jsx" }
+    ]
+  },
+  "account": {
+    "fields": [
+      { "name": "name", "type": "string" },
+      { "name": "email", "type": "string" },
+      { "name": "password", "type": "string" }
+    ],
+    "actions": [
+      { "name": "change_password", "label": "Update Password", "location": "Header.jsx" }
+    ]
+  },
+  "guardrails": [
+    "Chỉ hướng dẫn thao tác đúng với UI/UX thực tế trong file này.",
+    "Nếu user hỏi thao tác không có trong schema này, trả lời: 'Tính năng này chưa có trên giao diện hiện tại.'"
+  ]
+}

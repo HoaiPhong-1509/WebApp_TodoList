@@ -6,6 +6,7 @@ import { sendVerificationEmail } from "../services/emailService.js";
 import { ensureDefaultWorkspace } from "./workspacesControllers.js";
 
 const VERIFICATION_TOKEN_TTL_MS = 60 * 60 * 1000;
+const PASSWORD_CHANGE_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
 const EMAIL_CONTROLLER_OVERHEAD_MS = 3_000;
 const FRONTEND_AXIOS_TIMEOUT_MS = 60_000;
 const MAX_EMAIL_CONTROLLER_TIMEOUT_MS = 55_000;
@@ -98,6 +99,9 @@ const toAuthResponse = (user) => {
       id: user._id,
       name: user.name,
       email: user.email,
+      isVerified: user.isVerified,
+      createdAt: user.createdAt,
+      lastPasswordChangedAt: user.lastPasswordChangedAt || null,
     },
   };
 };
@@ -235,8 +239,68 @@ export const me = async (req, res) => {
       id: req.user._id,
       name: req.user.name,
       email: req.user.email,
+      isVerified: req.user.isVerified,
+      createdAt: req.user.createdAt,
+      lastPasswordChangedAt: req.user.lastPasswordChangedAt || null,
     },
   });
+};
+
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current password and new password are required" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "New password must be at least 6 characters" });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ message: "New password must be different from current password" });
+    }
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!verifyPassword(currentPassword, user.password)) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    if (user.lastPasswordChangedAt) {
+      const nextAllowedAt = new Date(user.lastPasswordChangedAt.getTime() + PASSWORD_CHANGE_COOLDOWN_MS);
+      if (nextAllowedAt.getTime() > Date.now()) {
+        return res.status(429).json({
+          message: "You can only change password once every 3 days",
+          nextAllowedAt,
+        });
+      }
+    }
+
+    user.password = hashPassword(newPassword);
+    user.lastPasswordChangedAt = new Date();
+    await user.save();
+
+    return res.status(200).json({
+      message: "Password changed successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        isVerified: user.isVerified,
+        createdAt: user.createdAt,
+        lastPasswordChangedAt: user.lastPasswordChangedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error changing password:", error);
+    return res.status(500).json({ message: "Server error while changing password" });
+  }
 };
 
 export const verifyEmail = async (req, res) => {

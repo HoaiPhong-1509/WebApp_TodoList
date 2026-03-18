@@ -39,24 +39,30 @@ const VerifyEmailPage = () => {
   }, [token]);
 
   return (
-    <div className="relative grid min-h-screen place-items-center overflow-hidden px-4">
+    <div className="relative min-h-screen overflow-hidden bg-slate-900">
       <div
-        className="absolute inset-0 z-0"
+        className="absolute inset-0"
         style={{
-          background: "radial-gradient(130% 130% at 50% 0%, #ecfeff 20%, #a5f3fc 100%)",
+          backgroundImage: "url('/bg_login.png')",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
         }}
       />
+      <div className="absolute inset-0 bg-slate-900/30" />
 
-      <Card className="relative z-10 w-full max-w-md space-y-4 border-0 bg-gradient-card p-8 text-center shadow-custom-lg">
-        <h1 className="text-2xl font-bold text-primary">Email Verification</h1>
-        <p className="text-sm text-muted-foreground">{message}</p>
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-8 sm:px-8">
+          <Card className="w-full max-w-md space-y-4 border-0 bg-white/[0.001] p-8 text-center shadow-custom-lg backdrop-blur-sm">
+            <h1 className="text-2xl font-bold text-primary">Email Verification</h1>
+            <p className="text-sm text-slate-200">{message}</p>
 
-        {status !== "loading" && (
-          <Button asChild variant="gradient" size="xl" className="w-full">
-            <Link to="/login">Go to Login</Link>
-          </Button>
-        )}
-      </Card>
+            {status !== "loading" && (
+              <Button asChild variant="gradient" size="xl" className="w-full">
+                <Link to="/login">Go to Login</Link>
+              </Button>
+            )}
+          </Card>
+      </div>
     </div>
   );
 };

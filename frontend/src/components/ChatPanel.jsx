@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { io } from "socket.io-client";
-import { ArrowLeft, LogOut, MessageCircle, MoreHorizontal, Search, Send, Trash2, Users, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Bot, LogOut, MessageCircle, MoreHorizontal, Search, Send, Trash2, Users, UserPlus, X } from "lucide-react";
 import api from "@/lib/axios";
 import { getAuthToken } from "@/lib/authToken";
 import { useAuth } from "@/hooks/useAuth";
@@ -14,6 +14,8 @@ const SOCKET_BASE_URL =
   import.meta.env.MODE === "development" ? "http://localhost:5001" : window.location.origin;
 
 const MAX_LOCAL_MESSAGES = 200;
+const AI_WELCOME_MESSAGE =
+  "Chao ban, minh la AI advisor. Hay mo ta muc tieu hoac van de dang gap de minh tu van tung buoc.";
 
 const formatTime = (value) => {
   const date = new Date(value);
@@ -71,9 +73,22 @@ const ChatPanel = () => {
 
   const [showConversationListMobile, setShowConversationListMobile] = useState(true);
 
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [aiDraft, setAiDraft] = useState("");
+  const [isAiSending, setIsAiSending] = useState(false);
+  const [aiMessages, setAiMessages] = useState([
+    {
+      id: "assistant-welcome",
+      role: "assistant",
+      content: AI_WELCOME_MESSAGE,
+      createdAt: new Date().toISOString(),
+    },
+  ]);
+
   const socketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const listEndRef = useRef(null);
+  const aiListEndRef = useRef(null);
   const isOpenRef = useRef(isOpen);
   const activeConversationIdRef = useRef(activeConversationId);
 
@@ -468,6 +483,14 @@ const ChatPanel = () => {
   }, [activeConversationId, activeMessages, activeTypingLabel]);
 
   useEffect(() => {
+    if (!isAiOpen) {
+      return;
+    }
+
+    aiListEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [aiMessages, isAiOpen]);
+
+  useEffect(() => {
     if (!isOpen || !activeConversationId) {
       return;
     }
@@ -636,6 +659,71 @@ const ChatPanel = () => {
     }
   };
 
+  const sendAiMessage = async () => {
+    const content = aiDraft.trim();
+    if (!content || isAiSending) {
+      return;
+    }
+
+    const userMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString(),
+    };
+
+    const history = aiMessages.slice(-8).map((message) => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: message.content,
+    }));
+
+    setAiMessages((prev) => [...prev, userMessage]);
+    setAiDraft("");
+    setIsAiSending(true);
+
+    try {
+      const res = await api.post("/chat/assistant", {
+        prompt: content,
+        history,
+      });
+
+      const reply = (res.data?.reply || "").toString().trim();
+      if (!reply) {
+        throw new Error("Empty assistant reply");
+      }
+
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: reply,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } catch (error) {
+      console.error("Unable to get AI assistant reply:", error);
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: "assistant",
+          content: "Minh chua the tra loi luc nay. Ban thu lai sau it phut nhe.",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } finally {
+      setIsAiSending(false);
+    }
+  };
+
+  const handleAiComposerKeyDown = (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendAiMessage();
+    }
+  };
+
   const deleteActiveConversation = async () => {
     if (!activeConversationId) {
       return;
@@ -686,10 +774,89 @@ const ChatPanel = () => {
           zIndex: 9999,
           transform: "none",
         }}
+        className="flex items-end gap-3"
       >
+        {isAiOpen ? (
+          <div className="absolute bottom-14 right-[10.75rem] z-[10000] flex h-[28rem] w-[22rem] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b px-3 py-2">
+              <div>
+                <h3 className="text-sm font-semibold">AI Advisor</h3>
+                <p className="text-[11px] text-muted-foreground">Tu van nhanh theo task workflow</p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="cursor-pointer"
+                onClick={() => setIsAiOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="flex-1 space-y-2 overflow-y-auto bg-background-secondary/40 px-3 py-2">
+              {aiMessages.map((message) => {
+                const isAssistant = message.role === "assistant";
+
+                return (
+                  <div key={message.id} className={`flex ${isAssistant ? "justify-start" : "justify-end"}`}>
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+                        isAssistant
+                          ? "border border-border/70 bg-card text-card-foreground"
+                          : "bg-primary text-primary-foreground"
+                      }`}
+                    >
+                      <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                      <p className="mt-1 text-[10px] opacity-70">{formatTime(message.createdAt)}</p>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {isAiSending ? <p className="px-1 text-xs text-muted-foreground">AI dang suy nghi...</p> : null}
+              <div ref={aiListEndRef} />
+            </div>
+
+            <div className="border-t px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={aiDraft}
+                  onChange={(event) => setAiDraft(event.target.value)}
+                  onKeyDown={handleAiComposerKeyDown}
+                  placeholder="Dat cau hoi cho AI"
+                  disabled={isAiSending}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  className="cursor-pointer"
+                  onClick={sendAiMessage}
+                  disabled={!aiDraft.trim() || isAiSending}
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <button
           type="button"
-          onClick={() => setIsOpen(true)}
+          onClick={() => setIsAiOpen((prev) => !prev)}
+          className="inline-flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-card text-foreground shadow-lg transition hover:bg-background-secondary"
+          title="Open AI Advisor"
+          aria-label="Open AI Advisor"
+        >
+          <Bot className="h-5 w-5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setIsAiOpen(false);
+            setIsOpen(true);
+          }}
           className="relative inline-flex cursor-pointer items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-lg hover:bg-primary/90"
         >
           {unreadTotal > 0 ? (

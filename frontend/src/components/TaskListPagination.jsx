@@ -40,8 +40,8 @@ const generatePages = () => {
 const pagesToShow = generatePages();
 
   return (
-    <div className="flex justify-center mt-4">
-          <Pagination>
+    <div className="flex justify-start">
+          <Pagination className="justify-start sm:justify-center">
       <PaginationContent>
         {/* Trước */}
         <PaginationItem>

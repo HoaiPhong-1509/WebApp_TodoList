@@ -71,68 +71,78 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="relative grid min-h-screen place-items-center overflow-hidden px-4">
+    <div className="relative min-h-screen overflow-hidden bg-slate-900">
       <div
-        className="absolute inset-0 z-0"
+        className="absolute inset-0"
         style={{
-          background: "radial-gradient(130% 130% at 50% 0%, #eef2ff 20%, #c4b5fd 100%)",
+          backgroundImage: "url('/bg_login.png')",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
         }}
       />
+      <div className="absolute inset-0 bg-slate-900/30" />
 
-      <Card className="relative z-10 w-full max-w-md space-y-5 border-0 bg-gradient-card p-8 shadow-custom-lg">
-        <div className="space-y-1 text-center">
-          <h1 className="text-3xl font-bold text-primary">Welcome Back</h1>
-          <p className="text-sm text-muted-foreground">Sign in to manage your tasks</p>
-        </div>
-
-        <form className="space-y-4" onSubmit={onSubmit}>
-          <Input
-            name="email"
-            type="email"
-            placeholder="Email"
-            value={form.email}
-            onChange={onChange}
-            autoComplete="email"
-          />
-
-          <Input
-            name="password"
-            type="password"
-            placeholder="Password"
-            value={form.password}
-            onChange={onChange}
-            autoComplete="current-password"
-          />
-
-          <Button type="submit" variant="gradient" size="xl" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? "Signing in..." : "Login"}
-          </Button>
-
-          {showResend && (
-            <div className="rounded-md border border-border/70 bg-background/70 p-3 text-sm">
-              <p className="mb-2 text-muted-foreground">
-                Your account is not verified yet. We can resend the verification email.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={handleResendVerification}
-                disabled={isResending}
-              >
-                {isResending ? "Resending..." : "Resend Verification Email"}
-              </Button>
+      <div className="relative z-10 flex min-h-screen items-stretch justify-start">
+        <section className="flex w-full items-center justify-center bg-transparent px-5 py-8 sm:px-8 md:w-[48%] lg:w-[42%] md:justify-start">
+          <Card className="w-full max-w-md space-y-5 border-0 bg-white/[0.001] p-8 shadow-custom-lg backdrop-blur-sm">
+            <div className="space-y-1 text-center md:text-left">
+              <h1 className="text-3xl font-bold text-primary">Welcome Back</h1>
+              <p className="text-sm text-slate-200">Sign in to manage your tasks</p>
             </div>
-          )}
-        </form>
 
-        <p className="text-center text-sm text-muted-foreground">
-          Don&apos;t have an account?{" "}
-          <Link to="/register" className="font-semibold text-primary hover:underline">
-            Register now
-          </Link>
-        </p>
-      </Card>
+            <form className="space-y-4" onSubmit={onSubmit}>
+              <Input
+                name="email"
+                type="email"
+                placeholder="Email"
+                value={form.email}
+                onChange={onChange}
+                autoComplete="email"
+                className="border-white/80 bg-transparent text-white placeholder:text-slate-300"
+              />
+
+              <Input
+                name="password"
+                type="password"
+                placeholder="Password"
+                value={form.password}
+                onChange={onChange}
+                autoComplete="current-password"
+                className="border-white/80 bg-transparent text-white placeholder:text-slate-300"
+              />
+
+              <Button type="submit" variant="gradient" size="xl" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? "Signing in..." : "Login"}
+              </Button>
+
+              {showResend && (
+                <div className="rounded-md border border-white/70 bg-black/20 p-3 text-sm">
+                  <p className="mb-2 text-slate-100">
+                    Your account is not verified yet. We can resend the verification email.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleResendVerification}
+                    disabled={isResending}
+                  >
+                    {isResending ? "Resending..." : "Resend Verification Email"}
+                  </Button>
+                </div>
+              )}
+            </form>
+
+            <p className="text-center text-sm text-slate-200 md:text-left">
+              Don&apos;t have an account?{" "}
+              <Link to="/register" className="font-semibold text-primary hover:underline">
+                Register now
+              </Link>
+            </p>
+          </Card>
+        </section>
+      </div>
     </div>
   );
 };

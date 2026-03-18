@@ -1,7 +1,19 @@
+import fs from "fs";
+import path from "path";
+// Load UI/UX schema for assistant context
+let UIUX_SCHEMA = null;
+try {
+  const schemaPath = path.resolve(__dirname, "../../assistant-uiux-schema.json");
+  UIUX_SCHEMA = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+} catch (e) {
+  UIUX_SCHEMA = null;
+}
 import Conversation from "../models/Conversation.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+import Workspace from "../models/Workspace.js";
 import { getSocketServer } from "../socket/ioStore.js";
+import { generateGroqAssistantReply } from "../services/groqAdvisorService.js";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -140,6 +152,296 @@ const ensureConversationMembership = async (conversationId, userId) => {
   }).populate("participants", "_id name email");
 
   return conversation;
+};
+
+const normalizeAssistantHistory = (history = []) => {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history
+    .slice(-8)
+    .map((entry) => {
+      const role = entry?.role === "assistant" ? "assistant" : "user";
+      const content = String(entry?.content || "").trim().slice(0, 1200);
+
+      if (!content) {
+        return null;
+      }
+
+      return { role, content };
+    })
+    .filter(Boolean);
+};
+
+const ASSISTANT_INTENT = {
+  WORKSPACE_JOIN: "workspace_join",
+  WORKSPACE_INVITE: "workspace_invite",
+  WORKSPACE_APPROVAL: "workspace_approval",
+  TASK_CREATE: "task_create",
+  TASK_PRIORITIZATION: "task_prioritization",
+  PRODUCTIVITY_COACHING: "productivity_coaching",
+  GENERAL: "general",
+};
+
+const detectAssistantIntent = (rawPrompt) => {
+  const prompt = normalizeText(rawPrompt);
+
+  if (
+    /(join workspace|tham gia workspace|vao workspace|vào workspace|join ws|ma moi|mã mời|invite code|join-by-code)/i.test(
+      prompt
+    )
+  ) {
+    return ASSISTANT_INTENT.WORKSPACE_JOIN;
+  }
+
+  if (/(invite|moi thanh vien|mời thành viên|ma moi|mã mời|share code)/i.test(prompt)) {
+    return ASSISTANT_INTENT.WORKSPACE_INVITE;
+  }
+
+  if (/(duyet|duyệt|approve|pending member|cho phep tham gia|phê duyệt)/i.test(prompt)) {
+    return ASSISTANT_INTENT.WORKSPACE_APPROVAL;
+  }
+
+  if (/(tao viec|tạo việc|tao task|tạo task|them viec|thêm việc|add task|create task)/i.test(prompt)) {
+    return ASSISTANT_INTENT.TASK_CREATE;
+  }
+
+  if (/(uu tien|ưu tiên|priority|quan trong|quan trọng|khẩn cấp|urgent|deadline)/i.test(prompt)) {
+    return ASSISTANT_INTENT.TASK_PRIORITIZATION;
+  }
+
+  if (/(qua tai|quá tải|stress|met|mệt|roi|rối|nang suat|năng suất|productivity)/i.test(prompt)) {
+    return ASSISTANT_INTENT.PRODUCTIVITY_COACHING;
+  }
+
+  return ASSISTANT_INTENT.GENERAL;
+};
+
+const extractInviteCode = (rawPrompt) => {
+  const prompt = String(rawPrompt || "").toUpperCase();
+  const match = prompt.match(/\b[A-HJ-NP-Z2-9]{6,12}\b/);
+  return match?.[0] || null;
+};
+
+const toWorkspaceState = async (userId) => {
+  const [
+    ownedWorkspaces,
+    memberWorkspaces,
+    pendingJoinedDocs,
+    ownedPendingDocs,
+    recentWorkspace,
+  ] = await Promise.all([
+    Workspace.countDocuments({ user: userId }),
+    Workspace.countDocuments({ "members.user": userId, user: { $ne: userId } }),
+    Workspace.find({ "pendingMembers.user": userId })
+      .select("_id name pendingMembers")
+      .lean(),
+    Workspace.find({ user: userId, "pendingMembers.0": { $exists: true } })
+      .select("_id name pendingMembers")
+      .lean(),
+    Workspace.findOne({
+      $or: [{ user: userId }, { "members.user": userId }],
+    })
+      .select("_id name inviteCode lastAccessedAt")
+      .sort({ lastAccessedAt: -1, updatedAt: -1 })
+      .lean(),
+  ]);
+
+  const pendingJoinedWorkspaceNames = pendingJoinedDocs
+    .map((workspace) => workspace.name)
+    .filter(Boolean)
+    .slice(0, 5);
+
+  const approvalsNeeded = ownedPendingDocs.reduce(
+    (sum, workspace) => sum + Number(Array.isArray(workspace.pendingMembers) ? workspace.pendingMembers.length : 0),
+    0
+  );
+
+  return {
+    ownedWorkspaces,
+    memberWorkspaces,
+    pendingJoinRequests: pendingJoinedDocs.length,
+    pendingJoinWorkspaceNames: pendingJoinedWorkspaceNames,
+    approvalsNeeded,
+    hasRecentWorkspace: Boolean(recentWorkspace?._id),
+    recentWorkspace: recentWorkspace
+      ? {
+          id: recentWorkspace._id,
+          name: recentWorkspace.name,
+          inviteCode: recentWorkspace.inviteCode || null,
+        }
+      : null,
+  };
+};
+
+const buildAssistantRoutingContext = async ({ user, prompt }) => {
+  const intent = detectAssistantIntent(prompt);
+  const inviteCodeCandidate = extractInviteCode(prompt);
+  const workspaceState = await toWorkspaceState(user._id);
+
+  return {
+    intent,
+    inviteCodeCandidate,
+    workspaceState,
+    user: {
+      id: user._id,
+      name: user.name || null,
+      email: user.email || null,
+    },
+  };
+};
+
+const buildAssistantContextInstruction = (assistantContext) => {
+  const { intent, inviteCodeCandidate, workspaceState } = assistantContext;
+
+  return [
+    "Bạn là trợ lý trong ứng dụng Todo Workspace.",
+    "Luôn trả lời theo dữ liệu ngữ cảnh được cấp, không dùng câu trả lời rập khuôn.",
+    "Nếu người dùng hỏi thao tác trong hệ thống, hãy đưa các bước ngắn, đúng theo workflow thật.",
+    "Nếu thiếu thông tin, hỏi thêm tối đa 1 câu làm rõ.",
+    `intent=${intent}`,
+    `inviteCodeCandidate=${inviteCodeCandidate || "none"}`,
+    `workspaceState=${JSON.stringify(workspaceState)}`,
+    "Task schema hiện có: title (string, required), workspaceId (required theo ngữ cảnh), status (todo|in_progress|completed, mặc định todo).",
+    "Không được yêu cầu hoặc gợi ý các field không tồn tại trong app như description, deadline, priority, task type.",
+    "Nếu user muốn tạo task, chỉ hướng dẫn theo title + workspace và nhắc status mặc định là todo.",
+    "Workflow workspace hiện có: join bằng invite code sẽ tạo pending request và cần owner approve.",
+    "Endpoint tương ứng: POST /api/workspaces/join-by-code (body: inviteCode).",
+    "Endpoint tạo task: POST /api/tasks (body tối thiểu: title, workspaceId).",
+    "Owner duyệt thành viên tại endpoint POST /api/workspaces/:id/pending/:userId/approve.",
+    UIUX_SCHEMA ? `UI/UX SCHEMA: ${JSON.stringify(UIUX_SCHEMA)}` : "",
+    "Chỉ hướng dẫn thao tác đúng với UI/UX thực tế trong UI/UX SCHEMA. Nếu user hỏi thao tác không có trong schema này, trả lời: 'Tính năng này chưa có trên giao diện hiện tại.'"
+  ].join("\n");
+};
+
+const buildFallbackAssistantReply = (rawPrompt, assistantContext = null) => {
+  const prompt = String(rawPrompt || "").trim();
+  const lowerPrompt = prompt.toLowerCase();
+
+  const intent = assistantContext?.intent || ASSISTANT_INTENT.GENERAL;
+  const workspaceState = assistantContext?.workspaceState || null;
+  const inviteCodeCandidate = assistantContext?.inviteCodeCandidate || null;
+
+  if (intent === ASSISTANT_INTENT.WORKSPACE_JOIN) {
+    const pendingJoinRequests = Number(workspaceState?.pendingJoinRequests || 0);
+    const pendingNames = workspaceState?.pendingJoinWorkspaceNames || [];
+
+    const lines = ["Để tham gia workspace, bạn cần mã mời từ owner/admin của workspace đó."];
+
+    if (inviteCodeCandidate) {
+      lines.push(`Bạn đã cung cấp mã ${inviteCodeCandidate}. Hãy vào mục Workspace và nhập mã này để gửi yêu cầu tham gia.`);
+    } else {
+      lines.push("Khi có mã mời, vào Workspace -> Join by code -> nhập mã -> gửi yêu cầu.");
+    }
+
+    lines.push("Sau khi gửi, owner sẽ cần phê duyệt thì bạn mới vào workspace được.");
+
+    if (pendingJoinRequests > 0) {
+      const workspaceHint = pendingNames.length > 0 ? ` (${pendingNames.join(", ")})` : "";
+      lines.push(`Hiện tài khoản của bạn đang có ${pendingJoinRequests} yêu cầu chờ duyệt${workspaceHint}.`);
+    }
+
+    return lines.join(" ");
+  }
+
+  if (intent === ASSISTANT_INTENT.WORKSPACE_INVITE) {
+    const recentWorkspaceName = workspaceState?.recentWorkspace?.name;
+    return recentWorkspaceName
+      ? `Bạn có thể mở workspace "${recentWorkspaceName}", lấy Invite code và gửi cho thành viên. Khi họ join bằng code, yêu cầu sẽ vào danh sách chờ để bạn duyệt.`
+      : "Bạn có thể mở workspace cần mời, lấy Invite code rồi gửi cho thành viên. Khi họ join bằng code, yêu cầu sẽ vào danh sách chờ duyệt.";
+  }
+
+  if (intent === ASSISTANT_INTENT.WORKSPACE_APPROVAL) {
+    const approvalsNeeded = Number(workspaceState?.approvalsNeeded || 0);
+    if (approvalsNeeded > 0) {
+      return `Hiện bạn có ${approvalsNeeded} yêu cầu tham gia đang chờ duyệt trong các workspace bạn sở hữu. Vào Members/Pending để Approve hoặc Reject từng người.`;
+    }
+
+    return "Bạn có thể duyệt thành viên tại mục Members/Pending của workspace bạn sở hữu. Hiện chưa thấy yêu cầu chờ duyệt nào.";
+  }
+
+  if (intent === ASSISTANT_INTENT.TASK_CREATE) {
+    const recentWorkspaceName = workspaceState?.recentWorkspace?.name;
+    const workspaceHint = recentWorkspaceName
+      ? ` trong workspace "${recentWorkspaceName}"`
+      : " trong workspace bạn đang chọn";
+
+    return [
+      `Để tạo task${workspaceHint}, app hiện chỉ cần 2 thông tin: title và workspace.`,
+      "Ví dụ đúng: title = \"Làm bài tập DA_CNTT\".",
+      "Sau khi tạo, status mặc định là todo; bạn có thể đổi sang in_progress hoặc completed sau.",
+      "Lưu ý: app chưa có các trường description, deadline, priority hoặc task type.",
+    ].join(" ");
+  }
+
+  if (!prompt) {
+    return "Bạn có thể mô tả mục tiêu hiện tại và 2-3 task bạn đang vướng để mình tư vấn cụ thể hơn.";
+  }
+
+  if (/(gấp|khẩn|deadline|urgent|trễ)/i.test(lowerPrompt)) {
+    return "Mình đề xuất xử lý theo thứ tự: (1) Chọn 1 task quan trọng nhất cho deadline gần nhất. (2) Cắt task đó thành bước 30-45 phút và làm ngay bước đầu. (3) Tạm hoãn mọi task không ảnh hưởng deadline trong hôm nay.";
+  }
+
+  if (/(quá tải|nhiều việc|rối|stress|mệt)/i.test(lowerPrompt)) {
+    return "Bạn đang có dấu hiệu quá tải. Hãy thử: (1) Giới hạn tối đa 3 task trong trạng thái In Progress. (2) Hoàn thành 1 task nhỏ trong 25 phút để lấy đà. (3) Chuyển các việc chưa cần thiết sang backlog để giảm áp lực nhận thức.";
+  }
+
+  if (/(ưu tiên|priority|quan trọng)/i.test(lowerPrompt)) {
+    return "Cách ưu tiên nhanh: dùng ma trận Tác động x Khẩn cấp. Chọn 1 task tác động cao + khẩn cấp làm trước, 1 task tác động cao nhưng không khẩn cấp lên lịch, còn lại đưa về backlog để tránh dàn trải.";
+  }
+
+  return "Mình gợi ý 3 bước hành động: (1) Nêu rõ kết quả cần đạt trong hôm nay bằng 1 câu. (2) Chọn 1 việc quan trọng nhất và chia thành bước nhỏ có thể làm trong 30-60 phút. (3) Sau khi xong bước đầu, cập nhật lại để mình đề xuất bước tiếp theo chính xác hơn.";
+};
+
+export const chatWithAssistant = async (req, res) => {
+  try {
+    const prompt = typeof req.body.prompt === "string" ? req.body.prompt.trim() : "";
+    const history = normalizeAssistantHistory(req.body.history);
+
+    if (!prompt) {
+      return res.status(400).json({ message: "prompt is required" });
+    }
+
+    const assistantContext = await buildAssistantRoutingContext({
+      user: req.user,
+      prompt,
+    });
+
+    const contextInstruction = buildAssistantContextInstruction(assistantContext);
+
+    try {
+      const groqResult = await generateGroqAssistantReply({
+        prompt,
+        history,
+        contextInstruction,
+      });
+
+      if (groqResult?.reply) {
+        return res.status(200).json({
+          reply: groqResult.reply,
+          provider: groqResult.provider,
+          model: groqResult.model,
+          fallbackUsed: false,
+        });
+      }
+    } catch (assistantError) {
+      console.warn("Groq assistant failed, using fallback:", {
+        code: assistantError?.code,
+        message: assistantError?.message,
+      });
+    }
+
+    return res.status(200).json({
+      reply: buildFallbackAssistantReply(prompt, assistantContext),
+      provider: "rule-based",
+      fallbackUsed: true,
+      intent: assistantContext.intent,
+    });
+  } catch (error) {
+    console.error("Error chatting with AI assistant:", error);
+    return res.status(500).json({ message: "Server error while chatting with assistant" });
+  }
 };
 
 export const searchUsers = async (req, res) => {

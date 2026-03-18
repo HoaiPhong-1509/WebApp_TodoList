@@ -52,6 +52,14 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const changePassword = async (payload) => {
+    const res = await api.post("/auth/change-password", payload);
+    if (res.data?.user) {
+      setUser(res.data.user);
+    }
+    return res.data;
+  };
+
   const value = useMemo(
     () => ({
       user,
@@ -59,6 +67,7 @@ export const AuthProvider = ({ children }) => {
       register,
       login,
       resendVerification,
+      changePassword,
       logout,
     }),
     [user, isLoading]

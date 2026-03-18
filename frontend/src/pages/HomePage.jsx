@@ -323,7 +323,7 @@ const ActivityLineChart = ({ series }) => {
 };
 
 const HomePage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, changePassword } = useAuth();
   const navigate = useNavigate();
   const [taskBuffer, setTaskBuffer] = useState([]);
   const [todoTaskCount, setTodoTaskCount] = useState(0);
@@ -800,6 +800,14 @@ const HomePage = () => {
     await loadWorkspaceHistory();
   };
 
+  const handleChangePassword = async ({ currentPassword, newPassword }) => {
+    const res = await changePassword({ currentPassword, newPassword });
+    if (res?.message) {
+      toast.success(res.message);
+    }
+    return res;
+  };
+
   return (
     <div className='relative min-h-screen w-full overflow-hidden bg-slate-50'>
       <div
@@ -812,8 +820,10 @@ const HomePage = () => {
       <div className='relative z-10 mx-auto w-full max-w-7xl px-4 pb-20 pt-8 sm:px-6 lg:px-8'>
         <Header
           appName='Task Management App'
+          user={user}
           userName={user?.name || user?.email || 'User'}
           onLogout={handleLogout}
+          onChangePassword={handleChangePassword}
           notificationCount={notificationCount}
           workspaceName={selectedWorkspace?.name}
           workspaceNotifications={workspaceNotifications}
@@ -1183,15 +1193,19 @@ const HomePage = () => {
                 workspaceId={selectedWorkspaceId}
               />
 
-              <div className='flex flex-col items-center justify-between gap-4 sm:flex-row'>
-                <TaskListPagination
-                  handleNext={handleNext}
-                  handlePrev={handlePrev}
-                  handlePageChange={handlePageChange}
-                  page={page}
-                  totalPages={totalPages}
-                />
-                <DateTimeFilter dateQuery={dateQuery} setDateQuery={setDateQuery} />
+              <div className='flex items-center gap-3'>
+                <div className='min-w-0 flex-1'>
+                  <TaskListPagination
+                    handleNext={handleNext}
+                    handlePrev={handlePrev}
+                    handlePageChange={handlePageChange}
+                    page={page}
+                    totalPages={totalPages}
+                  />
+                </div>
+                <div className='ml-auto'>
+                  <DateTimeFilter dateQuery={dateQuery} setDateQuery={setDateQuery} />
+                </div>
               </div>
 
               <Footer
