@@ -15,6 +15,30 @@ const allowedOrigins = [...new Set(["http://localhost:5173", ...configuredCorsOr
 const conversationRoom = (conversationId) => `conversation:${conversationId}`;
 const userRoom = (userId) => `user:${userId}`;
 
+const ensureUnreadCountMap = (conversationDoc) => {
+  if (!conversationDoc.unreadCounts || typeof conversationDoc.unreadCounts.get !== "function") {
+    conversationDoc.unreadCounts = new Map(Object.entries(conversationDoc.unreadCounts || {}));
+  }
+
+  return conversationDoc.unreadCounts;
+};
+
+const applyUnreadCountsAfterSend = (conversationDoc, senderId) => {
+  const unreadCounts = ensureUnreadCountMap(conversationDoc);
+  const senderKey = senderId.toString();
+
+  conversationDoc.participants.forEach((participant) => {
+    const participantKey = (participant._id || participant).toString();
+
+    if (participantKey === senderKey) {
+      unreadCounts.set(participantKey, 0);
+      return;
+    }
+
+    unreadCounts.set(participantKey, Number(unreadCounts.get(participantKey) || 0) + 1);
+  });
+};
+
 const getSocketToken = (socket) => {
   const authToken = socket.handshake.auth?.token;
   if (authToken) {
@@ -113,11 +137,21 @@ export const setupSocketServer = (httpServer) => {
         const conversation = await Conversation.findOne({
           _id: conversationId,
           participants: socket.user.id,
-        });
+        }).populate("participants", "_id name email");
 
         if (!conversation) {
           acknowledge?.({ ok: false, message: "Conversation not found" });
           return;
+        }
+
+        const unreadCounts = ensureUnreadCountMap(conversation);
+        const myUserKey = socket.user.id.toString();
+        if (Number(unreadCounts.get(myUserKey) || 0) > 0) {
+          unreadCounts.set(myUserKey, 0);
+          await conversation.save();
+          io.to(userRoom(socket.user.id)).emit("chat:conversation:update", {
+            conversation: chatSerializer.toConversationResponse(conversation, socket.user.id),
+          });
         }
 
         const room = conversationRoom(conversationId);
@@ -191,6 +225,7 @@ export const setupSocketServer = (httpServer) => {
           sender: socket.user.id,
           createdAt: message.createdAt,
         };
+        applyUnreadCountsAfterSend(conversation, socket.user.id);
         conversation.deletedFor = [];
         conversation.updatedAt = new Date();
         await conversation.save();

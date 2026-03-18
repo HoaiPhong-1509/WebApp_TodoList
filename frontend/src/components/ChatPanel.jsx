@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { io } from "socket.io-client";
-import { ArrowLeft, LogOut, MessageCircle, Search, Send, Trash2, Users, UserPlus, X } from "lucide-react";
+import { ArrowLeft, LogOut, MessageCircle, MoreHorizontal, Search, Send, Trash2, Users, UserPlus, X } from "lucide-react";
 import api from "@/lib/axios";
 import { getAuthToken } from "@/lib/authToken";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const SOCKET_BASE_URL =
   import.meta.env.MODE === "development" ? "http://localhost:5001" : window.location.origin;
@@ -64,6 +66,8 @@ const ChatPanel = () => {
   const [addMemberIds, setAddMemberIds] = useState([]);
   const [addMemberQuery, setAddMemberQuery] = useState("");
   const [addMemberResults, setAddMemberResults] = useState([]);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const [isMembersDialogOpen, setIsMembersDialogOpen] = useState(false);
 
   const [showConversationListMobile, setShowConversationListMobile] = useState(true);
 
@@ -72,8 +76,6 @@ const ChatPanel = () => {
   const listEndRef = useRef(null);
   const isOpenRef = useRef(isOpen);
   const activeConversationIdRef = useRef(activeConversationId);
-  const countedUnreadMessageIdsRef = useRef(new Set());
-  const unreadBumpAtByConversationRef = useRef({});
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeConversationId) || null,
@@ -156,6 +158,15 @@ const ChatPanel = () => {
         const res = await api.get("/chat/conversations");
         const nextConversations = res.data.conversations || [];
         setConversations(nextConversations);
+        setUnreadByConversation(
+          nextConversations.reduce((acc, conversation) => {
+            const unreadCount = Number(conversation.unreadCount || 0);
+            if (unreadCount > 0) {
+              acc[conversation.id] = unreadCount;
+            }
+            return acc;
+          }, {})
+        );
 
         if (nextConversations.length > 0) {
           setActiveConversationId((prev) => prev || nextConversations[0].id);
@@ -229,23 +240,6 @@ const ChatPanel = () => {
         return;
       }
 
-      const isOwnMessage = toIdString(incomingMessage.sender?.id) === toIdString(user?.id);
-      const isReadingConversation = isOpenRef.current && activeConversationIdRef.current === conversationId;
-      const messageId = toIdString(incomingMessage?.id);
-
-      if (!isOwnMessage && !isReadingConversation && messageId && !countedUnreadMessageIdsRef.current.has(messageId)) {
-        countedUnreadMessageIdsRef.current.add(messageId);
-
-        if (countedUnreadMessageIdsRef.current.size > 3000) {
-          countedUnreadMessageIdsRef.current.clear();
-        }
-
-        setUnreadByConversation((prev) => ({
-          ...prev,
-          [conversationId]: (prev[conversationId] || 0) + 1,
-        }));
-      }
-
       setMessagesByConversation((prev) => {
         const current = prev[conversationId] || [];
         if (current.some((message) => message.id === incomingMessage.id)) {
@@ -287,34 +281,25 @@ const ChatPanel = () => {
         return;
       }
 
-      setConversations((prev) => {
-        const existingConversation = prev.find((item) => item.id === conversation.id);
-        const previousLastMessageAt = existingConversation?.lastMessage?.createdAt;
-        const nextLastMessageAt = conversation.lastMessage?.createdAt;
+      upsertConversation(conversation, true);
 
-        const hasNewLastMessage =
-          Boolean(nextLastMessageAt) &&
-          (!previousLastMessageAt || new Date(nextLastMessageAt).getTime() > new Date(previousLastMessageAt).getTime());
+      const isReadingConversation = isOpenRef.current && activeConversationIdRef.current === conversation.id;
+      const unreadCount = isReadingConversation ? 0 : Number(conversation.unreadCount || 0);
+      setUnreadByConversation((prevUnread) => {
+        if (unreadCount <= 0) {
+          if (!prevUnread[conversation.id]) {
+            return prevUnread;
+          }
 
-        const isOwnLastMessage = toIdString(conversation.lastMessage?.sender) === toIdString(user?.id);
-        const isReadingConversation = isOpenRef.current && activeConversationIdRef.current === conversation.id;
-        const lastUnreadBumpAt = unreadBumpAtByConversationRef.current[conversation.id];
-        const shouldBumpUnreadFromUpdate =
-          hasNewLastMessage &&
-          !isOwnLastMessage &&
-          !isReadingConversation &&
-          (!lastUnreadBumpAt || new Date(nextLastMessageAt).getTime() > new Date(lastUnreadBumpAt).getTime());
-
-        if (shouldBumpUnreadFromUpdate) {
-          unreadBumpAtByConversationRef.current[conversation.id] = nextLastMessageAt;
-          setUnreadByConversation((prevUnread) => ({
-            ...prevUnread,
-            [conversation.id]: (prevUnread[conversation.id] || 0) + 1,
-          }));
+          const next = { ...prevUnread };
+          delete next[conversation.id];
+          return next;
         }
 
-        const withoutCurrent = prev.filter((item) => item.id !== conversation.id);
-        return [conversation, ...withoutCurrent];
+        return {
+          ...prevUnread,
+          [conversation.id]: unreadCount,
+        };
       });
     });
 
@@ -375,7 +360,7 @@ const ChatPanel = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!activeConversationId) {
+    if (!isOpen || !activeConversationId) {
       return;
     }
 
@@ -386,6 +371,15 @@ const ChatPanel = () => {
           ...prev,
           [activeConversationId]: res.data.messages || [],
         }));
+
+        if (res.data.conversation) {
+          upsertConversation(res.data.conversation, false);
+          setUnreadByConversation((prevUnread) => {
+            const next = { ...prevUnread };
+            delete next[activeConversationId];
+            return next;
+          });
+        }
       } catch (error) {
         console.error("Unable to load messages:", error);
       }
@@ -397,7 +391,7 @@ const ChatPanel = () => {
     }
 
     loadMessages();
-  }, [activeConversationId]);
+  }, [activeConversationId, isOpen]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -492,6 +486,8 @@ const ChatPanel = () => {
   const handleOpenConversation = (conversationId) => {
     setActiveConversationId(conversationId);
     setShowAddMembers(false);
+    setIsActionsMenuOpen(false);
+    setIsMembersDialogOpen(false);
     setShowConversationListMobile(false);
   };
 
@@ -717,7 +713,7 @@ const ChatPanel = () => {
             <h2 className="text-xl font-semibold">Messenger Workspace</h2>
             <p className="text-xs text-muted-foreground">{isConnected ? "Realtime connected" : "Reconnecting..."}</p>
           </div>
-          <Button type="button" variant="ghost" size="icon" onClick={() => setIsOpen(false)}>
+          <Button type="button" variant="ghost" size="icon" className="cursor-pointer" onClick={() => setIsOpen(false)}>
             <X className="h-5 w-5" />
           </Button>
         </div>
@@ -752,7 +748,7 @@ const ChatPanel = () => {
                         <p className="truncate text-sm font-medium">{resultUser.name}</p>
                         <p className="truncate text-xs text-muted-foreground">{resultUser.email}</p>
                       </div>
-                      <Button size="xs" variant="outline" onClick={() => startDirectChat(resultUser.id)}>
+                      <Button size="xs" variant="outline" className="cursor-pointer" onClick={() => startDirectChat(resultUser.id)}>
                         Chat
                       </Button>
                     </div>
@@ -766,7 +762,7 @@ const ChatPanel = () => {
                 type="button"
                 variant="secondary"
                 size="sm"
-                className="w-full"
+                className="w-full cursor-pointer"
                 onClick={() => setShowCreateGroup((prev) => !prev)}
               >
                 <Users className="mr-2 h-4 w-4" />
@@ -804,7 +800,7 @@ const ChatPanel = () => {
                 </div>
                 <Button
                   type="button"
-                  className="mt-2 w-full"
+                  className="mt-2 w-full cursor-pointer"
                   size="sm"
                   onClick={createGroupConversation}
                   disabled={!newGroupName.trim() || newGroupMemberIds.length < 2}
@@ -825,7 +821,7 @@ const ChatPanel = () => {
                       key={conversation.id}
                       type="button"
                       onClick={() => handleOpenConversation(conversation.id)}
-                      className={`w-full rounded-lg border px-3 py-2 text-left transition ${
+                      className={`w-full cursor-pointer rounded-lg border px-3 py-2 text-left transition ${
                         conversation.id === activeConversationId
                           ? "border-primary bg-primary/10"
                           : "border-border/70 bg-background hover:bg-background-secondary"
@@ -860,7 +856,7 @@ const ChatPanel = () => {
                       type="button"
                       variant="ghost"
                       size="icon-sm"
-                      className="md:hidden"
+                      className="cursor-pointer md:hidden"
                       onClick={() => setShowConversationListMobile(true)}
                     >
                       <ArrowLeft className="h-4 w-4" />
@@ -873,30 +869,86 @@ const ChatPanel = () => {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {activeConversation.type === "group" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowAddMembers((prev) => !prev)}
-                        disabled={!canDissolveGroup}
-                      >
-                        <UserPlus className="mr-2 h-4 w-4" />
-                        <span className="hidden sm:inline">Add Members</span>
-                      </Button>
-                    ) : null}
-                    {canLeaveGroup ? (
-                      <Button type="button" variant="outline" size="sm" onClick={leaveActiveGroup}>
-                        <LogOut className="mr-2 h-4 w-4" />
-                        <span className="hidden sm:inline">Leave Group</span>
-                      </Button>
-                    ) : null}
-                    <Button type="button" variant="destructive" size="sm" onClick={deleteActiveConversation}>
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      <span className="hidden sm:inline">
-                        {activeConversation.type === "group" && canDissolveGroup ? "Dissolve Group" : "Delete Chat"}
-                      </span>
-                    </Button>
+                    <Popover open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="cursor-pointer bg-transparent p-0 text-muted-foreground transition-colors duration-200 hover:bg-transparent hover:text-foreground"
+                          aria-label="Conversation actions"
+                          title="Conversation actions"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-52 border-border/70 bg-card/95 p-2 shadow-none backdrop-blur-sm">
+                        <div className="space-y-1">
+                          {activeConversation.type === "group" ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full cursor-pointer justify-start"
+                              onClick={() => {
+                                setIsActionsMenuOpen(false);
+                                setIsMembersDialogOpen(true);
+                                setShowAddMembers(false);
+                              }}
+                            >
+                              <Users className="mr-2 h-4 w-4" />
+                              View Members
+                            </Button>
+                          ) : null}
+
+                          {activeConversation.type === "group" ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full cursor-pointer justify-start"
+                              onClick={() => {
+                                setIsActionsMenuOpen(false);
+                                setShowAddMembers((prev) => !prev);
+                              }}
+                              disabled={!canDissolveGroup}
+                            >
+                              <UserPlus className="mr-2 h-4 w-4" />
+                              Add Members
+                            </Button>
+                          ) : null}
+
+                          {canLeaveGroup ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full cursor-pointer justify-start"
+                              onClick={leaveActiveGroup}
+                            >
+                              <LogOut className="mr-2 h-4 w-4" />
+                              Leave Group
+                            </Button>
+                          ) : null}
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full cursor-pointer justify-start text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                            onClick={() => {
+                              setIsActionsMenuOpen(false);
+                              deleteActiveConversation();
+                            }}
+                            title={activeConversation.type === "group" && canDissolveGroup ? "Dissolve group" : "Delete chat"}
+                            aria-label={activeConversation.type === "group" && canDissolveGroup ? "Dissolve group" : "Delete chat"}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            {activeConversation.type === "group" && canDissolveGroup ? "Dissolve" : "Delete"}
+                          </Button>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
 
@@ -925,7 +977,7 @@ const ChatPanel = () => {
                     <Button
                       type="button"
                       size="sm"
-                      className="mt-2"
+                      className="mt-2 cursor-pointer"
                       onClick={addMembersToActiveConversation}
                       disabled={addMemberIds.length === 0}
                     >
@@ -970,6 +1022,7 @@ const ChatPanel = () => {
                     <Button
                       type="button"
                       size="icon"
+                      className="cursor-pointer"
                       onClick={sendMessage}
                       disabled={!draft.trim() || !isConnected || !activeConversationId}
                     >
@@ -982,6 +1035,39 @@ const ChatPanel = () => {
           </section>
         </div>
       </div>
+
+      <Dialog
+        open={isMembersDialogOpen && activeConversation?.type === "group"}
+        onOpenChange={setIsMembersDialogOpen}
+      >
+        <DialogContent className="max-h-[70vh] overflow-hidden p-0 sm:max-w-xl">
+          <DialogHeader className="border-b px-4 py-3">
+            <DialogTitle>Group Members</DialogTitle>
+            <DialogDescription>{activeConversation?.title || "Conversation"}</DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[56vh] space-y-2 overflow-y-auto px-4 py-3">
+            {(activeConversation?.participants || []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No members found.</p>
+            ) : (
+              (activeConversation?.participants || []).map((participant) => (
+                <div
+                  key={`member-dialog-${participant.id}`}
+                  className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-card px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{participant.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{participant.email}</p>
+                  </div>
+                  {participant.id === user?.id ? (
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">You</span>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>,
     document.body
   );

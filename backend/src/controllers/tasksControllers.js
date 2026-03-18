@@ -3,9 +3,16 @@ import Workspace from "../models/Workspace.js";
 import AiAdvisorCache from "../models/AiAdvisorCache.js";
 import { ensureDefaultWorkspace } from "./workspacesControllers.js";
 import { generateGroqTaskRecommendations } from "../services/groqAdvisorService.js";
+import { getWorkspacePermissions, normalizeWorkspaceId } from "../utils/workspaceAccess.js";
+import { logWorkspaceActivity } from "../utils/workspaceActivity.js";
 
 const ACTIVITY_TIMEZONE = process.env.APP_TIMEZONE || "Asia/Ho_Chi_Minh";
 const AI_SCOPE_LABEL = "Tat ca workspace";
+const TASK_STATUS_LABELS = {
+    todo: "To Do",
+    in_progress: "In Progress",
+    completed: "Completed",
+};
 
 const ACTION_VERBS = new Set([
     "analyze",
@@ -69,14 +76,6 @@ const formatDateKeyInTimezone = (date, timeZone = ACTIVITY_TIMEZONE) => {
     return `${year}-${month}-${day}`;
 };
 
-const normalizeWorkspaceId = (rawId) => {
-    if (!rawId || typeof rawId !== "string") {
-        return null;
-    }
-    const trimmed = rawId.trim();
-    return trimmed || null;
-};
-
 const getAdvisorDateKey = (date = new Date()) => formatDateKeyInTimezone(date);
 
 const getCacheExpiryDate = (date = new Date()) => {
@@ -110,8 +109,13 @@ const resolveWorkspaceForRequest = async (userId, rawWorkspaceId) => {
         return defaultWorkspace;
     }
 
-    const workspace = await Workspace.findOne({ _id: workspaceId, user: userId });
+    const workspace = await Workspace.findById(workspaceId);
     if (!workspace) {
+        return null;
+    }
+
+    const permissions = getWorkspacePermissions(workspace, userId);
+    if (!permissions.canAccess) {
         return null;
     }
 
@@ -211,18 +215,18 @@ const buildScientificRecommendations = ({ tasks, todoCount, inProgressCount, com
     if (totalCount === 0) {
         recommendations.push({
             id: "seed-data",
-            title: "Tao du lieu nen trong 1 tuan",
-            advice: "Hay them it nhat 5 task cu the trong tuan nay va dinh nghia ket qua hoan thanh ro rang de AI phan tich chuan hon.",
-            reason: "Phan tich hanh vi can du du lieu su kien de tim mau on dinh.",
+            title: "Tạo dữ liệu nền trong 1 tuần",
+            advice: "Hãy thêm ít nhất 5 task cụ thể trong tuần này và định nghĩa kết quả hoàn thành rõ ràng để AI phân tích chuẩn hơn.",
+            reason: "Phân tích hành vi cần đủ dữ liệu sự kiện để tìm mẫu ổn định.",
             impact: "high",
         });
     } else {
         if (wipRatio > 40) {
             recommendations.push({
                 id: "limit-wip",
-                title: "Gioi han task dang lam (WIP)",
-                advice: `Ban dang co ${inProgressCount} task dang lam (${wipRatio}%). Nen gioi han WIP o muc 2-3 task de giam chi phi chuyen ngu canh va tang toc do hoan thanh.`,
-                reason: "Nguyen tac Kanban cho thay WIP cao se lam chu ky hoan thanh dai hon va giam nang suat.",
+                title: "Giới hạn task đang làm (WIP)",
+                advice: `Bạn đang có ${inProgressCount} task đang làm (${wipRatio}%). Nên giới hạn WIP ở mức 2-3 task để giảm chi phí chuyển ngữ cảnh và tăng tốc độ hoàn thành.`,
+                reason: "Nguyên tắc Kanban cho thấy WIP cao sẽ làm chu kỳ hoàn thành dài hơn và giảm năng suất.",
                 impact: "high",
             });
         }
@@ -230,9 +234,9 @@ const buildScientificRecommendations = ({ tasks, todoCount, inProgressCount, com
         if (completionRate < 45) {
             recommendations.push({
                 id: "raise-completion",
-                title: "Tang nhip do hoan thanh",
-                advice: `Ti le hoan thanh hien la ${completionRate}%. Hay ap dung quy tac Top-3 moi ngay va hoan thanh 1 task truoc khi mo task moi.`,
-                reason: "Muc tieu nho theo ngay giup giam met moi quyet dinh va giu nhip thuc thi on dinh.",
+                title: "Tăng nhịp độ hoàn thành",
+                advice: `Tỉ lệ hoàn thành hiện là ${completionRate}%. Hãy áp dụng quy tắc Top-3 mỗi ngày và hoàn thành 1 task trước khi mở task mới.`,
+                reason: "Mục tiêu nhỏ theo ngày giúp giảm mệt mỏi quyết định và giữ nhịp thực thi ổn định.",
                 impact: "high",
             });
         }
@@ -240,9 +244,9 @@ const buildScientificRecommendations = ({ tasks, todoCount, inProgressCount, com
         if (activityBalance < 0) {
             recommendations.push({
                 id: "backlog-drift",
-                title: "Kiem soat tang truong backlog",
-                advice: `7 ngay gan nhat backlog tang rong (${activityCreated} tao moi vs ${activityCompleted} hoan thanh). Nen dat 20 phut moi ngay de cat tia backlog.`,
-                reason: "Luong viec vao khong kiem soat se tang tai nhan thuc va lam giam chat luong lam viec sau.",
+                title: "Kiểm soát tăng trưởng backlog",
+                advice: `7 ngày gần nhất backlog tăng ròng (${activityCreated} tạo mới vs ${activityCompleted} hoàn thành). Nên dành 20 phút mỗi ngày để cắt tỉa backlog.`,
+                reason: "Lượng việc vào không kiểm soát sẽ tăng tải nhận thức và làm giảm chất lượng làm việc sau đó.",
                 impact: "medium",
             });
         }
@@ -250,9 +254,9 @@ const buildScientificRecommendations = ({ tasks, todoCount, inProgressCount, com
         if (staleTodoCount > 0 || staleInProgressCount > 0) {
             recommendations.push({
                 id: "stale-tasks",
-                title: "Chia nho task bi tre",
-                advice: `${staleTodoCount + staleInProgressCount} task dang bi tre. Hay tach moi task tre thanh buoc hanh dong nho nhat tiep theo va dinh nghia dieu kien done ro rang.`,
-                reason: "Ky thuat implementation intention giup giam tri hoan va tang ty le theo den cung.",
+                title: "Chia nhỏ task bị trễ",
+                advice: `${staleTodoCount + staleInProgressCount} task đang bị trễ. Hãy tách mỗi task trễ thành bước hành động nhỏ nhất tiếp theo và định nghĩa điều kiện done rõ ràng.`,
+                reason: "Kỹ thuật implementation intention giúp giảm trì hoãn và tăng tỷ lệ theo đến cùng.",
                 impact: "high",
             });
         }
@@ -264,18 +268,18 @@ const buildScientificRecommendations = ({ tasks, todoCount, inProgressCount, com
         if (actionVerbRate < 60 || vagueWordCount > 0 || avgTitleLength < 3) {
             recommendations.push({
                 id: "task-clarity",
-                title: "Nang chat luong dat ten task",
-                advice: `Chi ${actionVerbRate}% task bat dau bang dong tu hanh dong. Nen dat ten theo dang cu the, vi du "Viet nhap release notes" thay vi nhan mo ho.`,
-                reason: "Cach dat ten ro rang, huong hanh dong se tang do chinh xac khi lap ke hoach va kha nang hoan thanh.",
+                title: "Nâng chất lượng đặt tên task",
+                advice: `Chỉ ${actionVerbRate}% task bắt đầu bằng động từ hành động. Nên đặt tên theo dạng cụ thể, ví dụ "Viết nháp release notes" thay vì nhãn mơ hồ.`,
+                reason: "Cách đặt tên rõ ràng, hướng hành động sẽ tăng độ chính xác khi lập kế hoạch và khả năng hoàn thành.",
                 impact: "medium",
             });
         }
 
         recommendations.push({
             id: "topic-batching",
-            title: "Gom viec theo chu de",
-            advice: `Nhom cong viec chiem uu the hien tai la ${dominantTopic}. Hay gom cac task cung loai thanh block tap trung 60-90 phut de giam chi phi chuyen doi.`,
-            reason: "Nghien cuu nhan thuc cho thay du am chu y giam khi gom viec tuong dong.",
+            title: "Gom việc theo chủ đề",
+            advice: `Nhóm công việc chiếm ưu thế hiện tại là ${dominantTopic}. Hãy gom các task cùng loại thành block tập trung 60-90 phút để giảm chi phí chuyển đổi.`,
+            reason: "Nghiên cứu nhận thức cho thấy dư âm chú ý giảm khi gom việc tương đồng.",
             impact: "medium",
         });
     }
@@ -283,9 +287,9 @@ const buildScientificRecommendations = ({ tasks, todoCount, inProgressCount, com
     if (recommendations.length === 0) {
         recommendations.push({
             id: "keep-rhythm",
-            title: "Duy tri nhip hien tai",
-            advice: "Cac chi so workflow dang on dinh. Hay giu review hang tuan va ky luat WIP de bao toan da tang.",
-            reason: "He thong on dinh thuong dat hieu qua cao voi vong lap review gon nhe va deu dan.",
+            title: "Duy trì nhịp hiện tại",
+            advice: "Các chỉ số workflow đang ổn định. Hãy giữ review hằng tuần và kỷ luật WIP để bảo toàn đà tăng.",
+            reason: "Hệ thống ổn định thường đạt hiệu quả cao với vòng lặp review gọn nhẹ và đều đặn.",
             impact: "low",
         });
     }
@@ -338,7 +342,6 @@ export const getAllTasks = async (req, res) => {
     }
 
     const query = {
-        user: userId,
         ...(startDate ? { createdAt: { $gte: startDate } } : {}),
     };
 
@@ -351,6 +354,15 @@ export const getAllTasks = async (req, res) => {
         if (!workspace) {
             return res.status(404).json({ message: "Workspace not found" });
         }
+
+        const workspacePermissions = getWorkspacePermissions(workspace, userId);
+        if (!workspacePermissions.canCrudTasks) {
+            return res.status(403).json({ message: "You do not have access to this workspace" });
+        }
+
+        const accessibleWorkspaceIds = await Workspace.find({
+            $or: [{ user: userId }, { "members.user": userId }],
+        }).distinct("_id");
 
         await migrateLegacyTasksToWorkspace(userId, workspace._id);
         query.workspace = workspace._id;
@@ -368,7 +380,7 @@ export const getAllTasks = async (req, res) => {
                 },
             ]),
             Task.aggregate([
-                { $match: { user: userId } },
+                { $match: { workspace: { $in: accessibleWorkspaceIds } } },
                 {
                     $facet: {
                         todoCount: [{ $match: { status: { $in: ["todo", "active"] } } }, { $count: "count" }],
@@ -380,7 +392,6 @@ export const getAllTasks = async (req, res) => {
             Task.aggregate([
                 {
                     $match: {
-                        user: userId,
                         workspace: workspace._id,
                         createdAt: { $gte: activityStartDate },
                     },
@@ -401,7 +412,6 @@ export const getAllTasks = async (req, res) => {
             Task.aggregate([
                 {
                     $match: {
-                        user: userId,
                         workspace: workspace._id,
                         completedAt: {
                             $ne: null,
@@ -425,7 +435,7 @@ export const getAllTasks = async (req, res) => {
             Task.aggregate([
                 {
                     $match: {
-                        user: userId,
+                        workspace: { $in: accessibleWorkspaceIds },
                         createdAt: { $gte: activityStartDate },
                     },
                 },
@@ -445,7 +455,7 @@ export const getAllTasks = async (req, res) => {
             Task.aggregate([
                 {
                     $match: {
-                        user: userId,
+                        workspace: { $in: accessibleWorkspaceIds },
                         completedAt: {
                             $ne: null,
                             $gte: activityStartDate,
@@ -465,7 +475,7 @@ export const getAllTasks = async (req, res) => {
                     },
                 },
             ]),
-            Task.find({ user: userId }).sort({ createdAt: -1 }).limit(240).lean(),
+            Task.find({ workspace: { $in: accessibleWorkspaceIds } }).sort({ createdAt: -1 }).limit(240).lean(),
         ]);
 
         const tasks = workspaceResult[0].tasks.map((task) => ({
@@ -531,7 +541,9 @@ export const getAllTasks = async (req, res) => {
         const advisorDateKey = getAdvisorDateKey(now);
         const cachedAdvisorDoc = await getCachedAiAdvisor(userId, advisorDateKey);
 
-        let aiAdvisor = cachedAdvisorDoc?.advisor
+        const hasUsableGroqCache = cachedAdvisorDoc?.advisor?.provider === "groq";
+
+        let aiAdvisor = hasUsableGroqCache
             ? {
                 ...cachedAdvisorDoc.advisor,
                 scope: "all_workspaces",
@@ -548,7 +560,7 @@ export const getAllTasks = async (req, res) => {
                 scope: "all_workspaces",
             };
 
-        if (!cachedAdvisorDoc?.advisor) {
+        if (!hasUsableGroqCache) {
             try {
                 const groqAdvisor = await generateGroqTaskRecommendations({
                     workspaceName: AI_SCOPE_LABEL,
@@ -576,11 +588,13 @@ export const getAllTasks = async (req, res) => {
                 cache: {
                     by: "user_day",
                     dateKey: advisorDateKey,
-                    hit: false,
+                    hit: hasUsableGroqCache,
                 },
             };
 
-            await saveCachedAiAdvisor(userId, advisorDateKey, aiAdvisor);
+            if (aiAdvisor.provider === "groq") {
+                await saveCachedAiAdvisor(userId, advisorDateKey, aiAdvisor);
+            }
         }
 
         await touchWorkspaceAccess(workspace._id);
@@ -601,6 +615,7 @@ export const getAllTasks = async (req, res) => {
             workspace: {
                 id: workspace._id,
                 name: workspace.name,
+                permissions: workspacePermissions,
             },
         });
     } catch (error) {
@@ -622,6 +637,11 @@ export const createTask = async (req, res) => {
             return res.status(404).json({ message: "Workspace not found" });
         }
 
+        const workspacePermissions = getWorkspacePermissions(workspace, req.user._id);
+        if (!workspacePermissions.canCrudTasks) {
+            return res.status(403).json({ message: "You do not have access to this workspace" });
+        }
+
         await migrateLegacyTasksToWorkspace(req.user._id, workspace._id);
 
         const task = new Task({
@@ -632,6 +652,16 @@ export const createTask = async (req, res) => {
 
         const newTask = await task.save();
         await touchWorkspaceAccess(workspace._id);
+        await logWorkspaceActivity({
+            workspaceId: workspace._id,
+            actor: req.user,
+            type: "task_created",
+            message: `${req.user.name || req.user.email} created task \"${newTask.title}\"`,
+            metadata: {
+                taskId: newTask._id,
+                taskTitle: newTask.title,
+            },
+        });
         res.status(201).json(newTask);
     }
     catch (error) {
@@ -649,6 +679,11 @@ export const updateTask = async (req, res) => {
         const workspace = await resolveWorkspaceForRequest(req.user._id, workspaceId || req.query.workspaceId);
         if (!workspace) {
             return res.status(404).json({ message: "Workspace not found" });
+        }
+
+        const workspacePermissions = getWorkspacePermissions(workspace, req.user._id);
+        if (!workspacePermissions.canCrudTasks) {
+            return res.status(403).json({ message: "You do not have access to this workspace" });
         }
 
         await migrateLegacyTasksToWorkspace(req.user._id, workspace._id);
@@ -677,16 +712,51 @@ export const updateTask = async (req, res) => {
             updates.completedAt = completedAt;
         }
 
-        const updateTask = await Task.findOneAndUpdate(
-            { _id: req.params.id, user: req.user._id, workspace: workspace._id },
-            updates,
-            { new : true, runValidators: true }   
-        );
-
-        if (!updateTask) {
+        const existingTask = await Task.findOne({ _id: req.params.id, workspace: workspace._id });
+        if (!existingTask) {
             return res.status(404).json({ message: "Task not found" });
         }
+
+        const previousTitle = existingTask.title;
+        const previousStatus = existingTask.status;
+
+        Object.assign(existingTask, updates);
+        const updateTask = await existingTask.save();
+
+        const changes = [];
+        if (typeof updates.title === "string" && updates.title !== previousTitle) {
+            changes.push("title");
+        }
+        if (typeof updates.status === "string" && updates.status !== previousStatus) {
+            changes.push("status");
+        }
+
+        const actorLabel = req.user.name || req.user.email;
+        let activityMessage = `${actorLabel} updated task \"${updateTask.title}\"`;
+
+        if (changes.includes("title") && changes.includes("status")) {
+            activityMessage = `${actorLabel} renamed task from \"${previousTitle}\" to \"${updateTask.title}\" and changed status from ${TASK_STATUS_LABELS[previousStatus] || previousStatus} to ${TASK_STATUS_LABELS[updateTask.status] || updateTask.status}`;
+        } else if (changes.includes("status")) {
+            activityMessage = `${actorLabel} changed \"${updateTask.title}\" from ${TASK_STATUS_LABELS[previousStatus] || previousStatus} to ${TASK_STATUS_LABELS[updateTask.status] || updateTask.status}`;
+        } else if (changes.includes("title")) {
+            activityMessage = `${actorLabel} renamed task from \"${previousTitle}\" to \"${updateTask.title}\"`;
+        }
+
         await touchWorkspaceAccess(workspace._id);
+        await logWorkspaceActivity({
+            workspaceId: workspace._id,
+            actor: req.user,
+            type: "task_updated",
+            message: activityMessage,
+            metadata: {
+                taskId: updateTask._id,
+                taskTitle: updateTask.title,
+                previousTitle,
+                previousStatus,
+                nextStatus: updateTask.status,
+                changes,
+            },
+        });
         res.status(200).json(updateTask);
     } catch (error) {
         console.error("Error updating task:", error);
@@ -701,14 +771,29 @@ export const deleteTask = async (req, res) => {
             return res.status(404).json({ message: "Workspace not found" });
         }
 
+        const workspacePermissions = getWorkspacePermissions(workspace, req.user._id);
+        if (!workspacePermissions.canCrudTasks) {
+            return res.status(403).json({ message: "You do not have access to this workspace" });
+        }
+
         await migrateLegacyTasksToWorkspace(req.user._id, workspace._id);
 
-        const deleteTask = await Task.findOneAndDelete({ _id: req.params.id, user: req.user._id, workspace: workspace._id });
+        const deleteTask = await Task.findOneAndDelete({ _id: req.params.id, workspace: workspace._id });
 
         if (!deleteTask) {
             return res.status(404).json({ message: "Task not found" });
         }
         await touchWorkspaceAccess(workspace._id);
+        await logWorkspaceActivity({
+            workspaceId: workspace._id,
+            actor: req.user,
+            type: "task_deleted",
+            message: `${req.user.name || req.user.email} deleted task \"${deleteTask.title}\"`,
+            metadata: {
+                taskId: deleteTask._id,
+                taskTitle: deleteTask.title,
+            },
+        });
         res.status(200).json(deleteTask);
     } catch (error) {
         console.error("Error deleting task:", error);

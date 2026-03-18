@@ -34,6 +34,10 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    workspaceNotificationsSeenAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

@@ -20,7 +20,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { BrainCircuit, Check, ChevronsUpDown, FolderKanban, Sparkles, X } from 'lucide-react';
+import { BrainCircuit, Check, ChevronsUpDown, Copy, FolderKanban, History, Sparkles, Trash2, Users, X } from 'lucide-react';
 
 const STATUS_LABELS = {
   todo: 'To Do',
@@ -28,11 +28,36 @@ const STATUS_LABELS = {
   completed: 'Completed',
 };
 
+const DEFAULT_WORKSPACE_PERMISSIONS = {
+  role: null,
+  isOwner: false,
+  isMember: false,
+  canInvite: false,
+  canViewMembers: false,
+  canCrudTasks: false,
+  canRemoveMembers: false,
+  canApproveMembers: false,
+  canDeleteWorkspace: false,
+};
+
 const formatLocalDateKey = (date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+};
+
+const formatActivityDateTime = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toLocaleString();
 };
 
 const buildActivitySeriesFallback = (tasks) => {
@@ -318,9 +343,26 @@ const HomePage = () => {
   const [workspaces, setWorkspaces] = useState([]);
   const [workspaceResults, setWorkspaceResults] = useState([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
+  const [workspacePermissions, setWorkspacePermissions] = useState(DEFAULT_WORKSPACE_PERMISSIONS);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const [isWorkspaceComboboxOpen, setIsWorkspaceComboboxOpen] = useState(false);
   const [isWorkspaceCrudOpen, setIsWorkspaceCrudOpen] = useState(false);
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
+  const [isSubmittingInviteJoin, setIsSubmittingInviteJoin] = useState(false);
+  const [workspaceInviteCode, setWorkspaceInviteCode] = useState('');
+  const [isInviteCodeLoading, setIsInviteCodeLoading] = useState(false);
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [workspaceMembers, setWorkspaceMembers] = useState([]);
+  const [workspacePendingMembers, setWorkspacePendingMembers] = useState([]);
+  const [workspaceOwnerId, setWorkspaceOwnerId] = useState('');
+  const [isMembersLoading, setIsMembersLoading] = useState(false);
+  const [isWorkspaceDeleting, setIsWorkspaceDeleting] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [workspaceActivities, setWorkspaceActivities] = useState([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [workspaceNotifications, setWorkspaceNotifications] = useState([]);
+  const [workspaceNotificationCount, setWorkspaceNotificationCount] = useState(0);
+  const [isMarkingNotificationsRead, setIsMarkingNotificationsRead] = useState(false);
 
   const fetchTasks = useCallback(async (workspaceId = selectedWorkspaceId) => {
     if (!workspaceId) {
@@ -334,6 +376,8 @@ const HomePage = () => {
       setUserTotalTaskCount(0);
       setUserActivitySeries([]);
       setAiAdvisor(null);
+      setWorkspacePermissions(DEFAULT_WORKSPACE_PERMISSIONS);
+      setWorkspaceInviteCode('');
       return;
     }
 
@@ -354,6 +398,7 @@ const HomePage = () => {
       setUserTotalTaskCount(res.data.userSummary?.totalCount || 0);
       setUserActivitySeries(res.data.userActivitySeries || []);
       setAiAdvisor(res.data.aiAdvisor || null);
+      setWorkspacePermissions(res.data.workspace?.permissions || DEFAULT_WORKSPACE_PERMISSIONS);
 
     } catch (error) {
       console.error('Error fetching tasks:', error);
@@ -398,9 +443,35 @@ const HomePage = () => {
     }
   }, [fetchTasks, selectedWorkspaceId]);
 
+  const loadWorkspaceNotifications = useCallback(async () => {
+    try {
+      const res = await api.get('/workspaces/notifications/summary', {
+        params: {
+          sinceHours: 48,
+          limit: 10,
+        },
+      });
+
+      setWorkspaceNotifications(res.data?.workspaceSummaries || []);
+      setWorkspaceNotificationCount(Number(res.data?.totalNotificationCount || 0));
+    } catch (error) {
+      console.error('Error loading workspace notifications:', error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchWorkspaces('', true);
   }, [fetchWorkspaces]);
+
+  useEffect(() => {
+    loadWorkspaceNotifications();
+
+    const timer = setInterval(() => {
+      loadWorkspaceNotifications();
+    }, 30000);
+
+    return () => clearInterval(timer);
+  }, [loadWorkspaceNotifications]);
 
   useEffect(() => {
     if (!selectedWorkspaceId) {
@@ -430,6 +501,25 @@ const HomePage = () => {
     logout();
     toast.success('Logged out successfully');
     navigate('/login');
+  };
+
+  const markAllWorkspaceNotificationsRead = async () => {
+    if (workspaceNotificationCount === 0 || isMarkingNotificationsRead) {
+      return;
+    }
+
+    try {
+      setIsMarkingNotificationsRead(true);
+      await api.post('/workspaces/notifications/mark-all-read');
+      setWorkspaceNotifications([]);
+      setWorkspaceNotificationCount(0);
+      toast.success('Đã đánh dấu tất cả thông báo là đã xem.');
+    } catch (error) {
+      console.error('Error marking notifications as read:', error);
+      toast.error(error.response?.data?.message || 'Không thể cập nhật trạng thái thông báo.');
+    } finally {
+      setIsMarkingNotificationsRead(false);
+    }
   };
 
   const handleNext = () => {
@@ -497,7 +587,13 @@ const HomePage = () => {
   const selectedWorkspace = workspaces.find((workspace) => workspace._id === selectedWorkspaceId)
     || workspaceResults.find((workspace) => workspace._id === selectedWorkspaceId)
     || workspaces[0];
-  const notificationCount = Math.min(todoTaskCount + inProgressTaskCount, 9);
+  const notificationCount = Math.min(workspaceNotificationCount, 99);
+
+  useEffect(() => {
+    if (selectedWorkspace?.permissions) {
+      setWorkspacePermissions(selectedWorkspace.permissions);
+    }
+  }, [selectedWorkspace]);
 
   useEffect(() => {
     if (totalPages > 0 && page > totalPages) {
@@ -534,6 +630,7 @@ const HomePage = () => {
       setSelectedWorkspaceId(workspace._id);
       setWorkspaceQuery('');
       setIsWorkspaceComboboxOpen(false);
+      setWorkspaceInviteCode('');
       await api.patch(`/workspaces/${workspace._id}/activate`);
       await fetchWorkspaces('', true);
       await fetchTasks(workspace._id);
@@ -541,6 +638,166 @@ const HomePage = () => {
       console.error('Error selecting workspace:', error);
       toast.error('Failed to select workspace.');
     }
+  };
+
+  const requestJoinWorkspace = async () => {
+    const normalizedCode = inviteCodeInput.trim().toUpperCase();
+    if (!normalizedCode) {
+      toast.error('Please enter an invite code.');
+      return;
+    }
+
+    try {
+      setIsSubmittingInviteJoin(true);
+      await api.post('/workspaces/join-by-code', { inviteCode: normalizedCode });
+      setInviteCodeInput('');
+      await fetchWorkspaces('', true);
+      toast.success('Join request sent. Please wait for owner approval.');
+    } catch (error) {
+      console.error('Error joining workspace:', error);
+      toast.error(error.response?.data?.message || 'Failed to send join request.');
+    } finally {
+      setIsSubmittingInviteJoin(false);
+    }
+  };
+
+  const fetchWorkspaceInviteCode = async () => {
+    if (!selectedWorkspaceId) {
+      toast.error('Please select a workspace first.');
+      return;
+    }
+
+    try {
+      setIsInviteCodeLoading(true);
+      const res = await api.post(`/workspaces/${selectedWorkspaceId}/invite-code`);
+      setWorkspaceInviteCode(res.data?.inviteCode || '');
+      toast.success('Invite code loaded.');
+    } catch (error) {
+      console.error('Error loading invite code:', error);
+      toast.error(error.response?.data?.message || 'Failed to load invite code.');
+    } finally {
+      setIsInviteCodeLoading(false);
+    }
+  };
+
+  const copyInviteCode = async () => {
+    if (!workspaceInviteCode) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(workspaceInviteCode);
+      toast.success('Invite code copied.');
+    } catch {
+      toast.error('Unable to copy invite code.');
+    }
+  };
+
+  const loadWorkspaceMembers = async () => {
+    if (!selectedWorkspaceId) {
+      return;
+    }
+
+    try {
+      setIsMembersLoading(true);
+      const res = await api.get(`/workspaces/${selectedWorkspaceId}/members`);
+      setWorkspaceMembers(res.data?.members || []);
+      setWorkspacePendingMembers(res.data?.pendingMembers || []);
+      setWorkspaceOwnerId(res.data?.ownerId || '');
+    } catch (error) {
+      console.error('Error loading workspace members:', error);
+      toast.error(error.response?.data?.message || 'Failed to load workspace members.');
+    } finally {
+      setIsMembersLoading(false);
+    }
+  };
+
+  const openMembersModal = async () => {
+    setIsMembersModalOpen(true);
+    await loadWorkspaceMembers();
+  };
+
+  const approvePendingMember = async (userId) => {
+    try {
+      await api.post(`/workspaces/${selectedWorkspaceId}/pending/${userId}/approve`);
+      toast.success('Member approved.');
+      await Promise.all([loadWorkspaceMembers(), fetchWorkspaces('', true)]);
+    } catch (error) {
+      console.error('Error approving member:', error);
+      toast.error(error.response?.data?.message || 'Failed to approve member.');
+    }
+  };
+
+  const rejectPendingMember = async (userId) => {
+    try {
+      await api.post(`/workspaces/${selectedWorkspaceId}/pending/${userId}/reject`);
+      toast.success('Join request rejected.');
+      await loadWorkspaceMembers();
+    } catch (error) {
+      console.error('Error rejecting member:', error);
+      toast.error(error.response?.data?.message || 'Failed to reject request.');
+    }
+  };
+
+  const removeMember = async (userId) => {
+    try {
+      await api.delete(`/workspaces/${selectedWorkspaceId}/members/${userId}`);
+      toast.success('Member removed.');
+      await Promise.all([loadWorkspaceMembers(), fetchWorkspaces('', true)]);
+    } catch (error) {
+      console.error('Error removing member:', error);
+      toast.error(error.response?.data?.message || 'Failed to remove member.');
+    }
+  };
+
+  const deleteCurrentWorkspace = async () => {
+    if (!selectedWorkspaceId || !workspacePermissions.canDeleteWorkspace) {
+      return;
+    }
+
+    const shouldDelete = window.confirm('Delete this workspace and all its tasks? This action cannot be undone.');
+    if (!shouldDelete) {
+      return;
+    }
+
+    try {
+      setIsWorkspaceDeleting(true);
+      await api.delete(`/workspaces/${selectedWorkspaceId}`);
+      setIsWorkspaceCrudOpen(false);
+      setIsMembersModalOpen(false);
+      setWorkspaceInviteCode('');
+      await fetchWorkspaces('', false);
+      toast.success('Workspace deleted.');
+    } catch (error) {
+      console.error('Error deleting workspace:', error);
+      toast.error(error.response?.data?.message || 'Failed to delete workspace.');
+    } finally {
+      setIsWorkspaceDeleting(false);
+    }
+  };
+
+  const loadWorkspaceHistory = async () => {
+    if (!selectedWorkspaceId) {
+      return;
+    }
+
+    try {
+      setIsHistoryLoading(true);
+      const res = await api.get(`/workspaces/${selectedWorkspaceId}/activities`, {
+        params: { limit: 80 },
+      });
+      setWorkspaceActivities(res.data?.activities || []);
+    } catch (error) {
+      console.error('Error loading workspace history:', error);
+      toast.error(error.response?.data?.message || 'Failed to load workspace history.');
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const openHistoryModal = async () => {
+    setIsHistoryModalOpen(true);
+    await loadWorkspaceHistory();
   };
 
   return (
@@ -559,6 +816,9 @@ const HomePage = () => {
           onLogout={handleLogout}
           notificationCount={notificationCount}
           workspaceName={selectedWorkspace?.name}
+          workspaceNotifications={workspaceNotifications}
+          onMarkAllNotificationsRead={markAllWorkspaceNotificationsRead}
+          isMarkingNotificationsRead={isMarkingNotificationsRead}
         />
 
         <div className='mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3'>
@@ -664,6 +924,33 @@ const HomePage = () => {
                   </div>
                 </div>
 
+                <div className='rounded-xl border border-violet-200/70 bg-white/70 p-4 backdrop-blur-sm'>
+                  <p className='text-sm font-semibold text-slate-800'>Join Workspace By Invite Code</p>
+                  <p className='mt-1 text-xs text-slate-500'>Paste invite code to send join request. Owner approval is required.</p>
+                  <div className='mt-3 flex flex-col gap-2 sm:flex-row'>
+                    <Input
+                      value={inviteCodeInput}
+                      onChange={(event) => setInviteCodeInput(event.target.value.toUpperCase())}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          requestJoinWorkspace();
+                        }
+                      }}
+                      placeholder='e.g. 7K2M9QXH'
+                      className='h-10 bg-white sm:max-w-xs'
+                    />
+                    <Button
+                      type='button'
+                      variant='outline'
+                      className='h-10 cursor-pointer border-primary bg-white text-primary hover:bg-primary/10'
+                      disabled={isSubmittingInviteJoin}
+                      onClick={requestJoinWorkspace}
+                    >
+                      {isSubmittingInviteJoin ? 'Sending...' : 'Send Join Request'}
+                    </Button>
+                  </div>
+                </div>
+
                 <div className='rounded-xl bg-white/45 p-4 backdrop-blur-sm ring-1 ring-violet-200/70 transition hover:bg-white/60 hover:ring-violet-400/80'>
                   <button
                     type='button'
@@ -673,6 +960,11 @@ const HomePage = () => {
                   >
                     <p className='text-sm font-semibold text-slate-700'>Current Workspace</p>
                     <p className='text-lg font-bold text-slate-900'>{selectedWorkspace?.name || 'No workspace selected'}</p>
+                    {selectedWorkspace && (
+                      <p className='text-xs text-slate-500'>
+                        Role: {workspacePermissions.role || 'member'} | Members: {selectedWorkspace.memberCount || 1} | Pending: {selectedWorkspace.pendingCount || 0}
+                      </p>
+                    )}
                     <p className='text-xs text-slate-500'>
                       {selectedWorkspace ? 'Click to open task CRUD window for this workspace.' : 'Pick or create a workspace to start.'}
                     </p>
@@ -784,23 +1076,96 @@ const HomePage = () => {
       {isWorkspaceCrudOpen && selectedWorkspace && createPortal(
         <div className='fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/25 px-2 py-4 backdrop-blur-[2px] md:px-6'>
           <div className='h-[88vh] w-[min(1180px,100%)] overflow-hidden rounded-2xl bg-white/96 backdrop-blur-md'>
-            <div className='flex items-center justify-between border-b border-violet-100 bg-white/90 px-4 py-3'>
+            <div className='flex flex-col gap-3 border-b border-violet-100 bg-white/90 px-4 py-3 md:flex-row md:items-center md:justify-between'>
               <div>
                 <p className='text-xs font-semibold uppercase tracking-[0.18em] text-violet-500'>Current Workspace</p>
                 <p className='text-base font-bold text-slate-900'>{selectedWorkspace?.name}</p>
+                <p className='text-xs text-slate-500'>Role: {workspacePermissions.role || 'viewer'}</p>
               </div>
-              <Button
-                type='button'
-                variant='ghost'
-                size='icon'
-                onClick={() => setIsWorkspaceCrudOpen(false)}
-                className='cursor-pointer text-slate-600 hover:bg-violet-100 hover:text-violet-700'
-              >
-                <X className='size-5' />
-              </Button>
+              <div className='flex flex-wrap items-center justify-end gap-2'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='h-8 border-violet-200 bg-white px-2.5 hover:bg-violet-50'
+                  onClick={openHistoryModal}
+                >
+                  <History className='size-4' />
+                  <span className='hidden sm:inline'>History</span>
+                </Button>
+
+                {workspacePermissions.canViewMembers && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='relative h-8 border-violet-200 bg-white px-2.5 hover:bg-violet-50'
+                    onClick={openMembersModal}
+                  >
+                    <Users className='size-4' />
+                    <span className='hidden sm:inline'>Members</span>
+                    {workspacePermissions.canApproveMembers && (selectedWorkspace?.pendingCount || 0) > 0 && (
+                      <span className='absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-white'>
+                        {selectedWorkspace.pendingCount > 99 ? '99+' : selectedWorkspace.pendingCount}
+                      </span>
+                    )}
+                  </Button>
+                )}
+
+                {workspacePermissions.canInvite && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-8 border-violet-200 bg-white px-2.5 hover:bg-violet-50'
+                    onClick={fetchWorkspaceInviteCode}
+                    disabled={isInviteCodeLoading}
+                  >
+                    <Copy className='size-4' />
+                    <span className='hidden sm:inline'>{isInviteCodeLoading ? 'Loading...' : 'Get Invite Code'}</span>
+                    <span className='sm:hidden'>{isInviteCodeLoading ? '...' : 'Invite'}</span>
+                  </Button>
+                )}
+
+                {workspacePermissions.canDeleteWorkspace && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-8 border-rose-200 bg-white px-2.5 text-rose-600 hover:bg-rose-50 hover:text-rose-700'
+                    onClick={deleteCurrentWorkspace}
+                    disabled={isWorkspaceDeleting}
+                  >
+                    <Trash2 className='size-4' />
+                    <span className='hidden sm:inline'>{isWorkspaceDeleting ? 'Deleting...' : 'Delete Workspace'}</span>
+                    <span className='sm:hidden'>{isWorkspaceDeleting ? '...' : 'Delete'}</span>
+                  </Button>
+                )}
+
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  onClick={() => setIsWorkspaceCrudOpen(false)}
+                  className='cursor-pointer shrink-0 text-slate-600 hover:bg-violet-100 hover:text-violet-700'
+                >
+                  <X className='size-5' />
+                </Button>
+              </div>
             </div>
 
             <div className='h-[calc(88vh-68px)] space-y-5 overflow-y-auto p-4'>
+              {workspaceInviteCode && (
+                <div className='flex flex-wrap items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/70 p-3'>
+                  <p className='text-xs uppercase tracking-[0.16em] text-violet-700'>Invite code</p>
+                  <p className='rounded bg-white px-2 py-1 text-sm font-bold tracking-[0.12em] text-violet-800'>{workspaceInviteCode}</p>
+                  <Button type='button' size='sm' variant='outline' className='h-8 bg-white' onClick={copyInviteCode}>
+                    <Copy className='size-4' />
+                    Copy
+                  </Button>
+                </div>
+              )}
+
               <AddTask handleNewTaskAdded={handleTaskChanged} workspaceId={selectedWorkspaceId} />
 
               <StatsAndFilters
@@ -834,6 +1199,158 @@ const HomePage = () => {
                 inProgressTasksCount={inProgressTaskCount}
                 completedTasksCount={completedTaskCount}
               />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {isMembersModalOpen && selectedWorkspace && createPortal(
+        <div className='fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/35 px-2 py-4 backdrop-blur-[2px] md:px-6'>
+          <div className='h-[82vh] w-[min(860px,100%)] overflow-hidden rounded-2xl bg-white/98'>
+            <div className='flex items-center justify-between border-b border-violet-100 px-4 py-3'>
+              <div>
+                <p className='text-xs font-semibold uppercase tracking-[0.18em] text-violet-500'>Workspace Members</p>
+                <p className='text-base font-bold text-slate-900'>{selectedWorkspace.name}</p>
+              </div>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                onClick={() => setIsMembersModalOpen(false)}
+                className='text-slate-600 hover:bg-violet-100 hover:text-violet-700'
+              >
+                <X className='size-5' />
+              </Button>
+            </div>
+
+            <div className='h-[calc(82vh-68px)] space-y-4 overflow-y-auto p-4'>
+              <div className='rounded-lg border border-violet-200 bg-violet-50/60 p-3'>
+                <p className='text-xs text-violet-700'>Owner can approve or reject pending requests and remove members. Members can only view this list.</p>
+              </div>
+
+              <div>
+                <p className='mb-2 text-sm font-semibold text-slate-800'>Active Members</p>
+                {isMembersLoading ? (
+                  <p className='text-sm text-slate-500'>Loading members...</p>
+                ) : workspaceMembers.length === 0 ? (
+                  <p className='text-sm text-slate-500'>No members.</p>
+                ) : (
+                  <div className='space-y-2'>
+                    {workspaceMembers.map((member) => {
+                      const isOwner = member.userId === workspaceOwnerId || member.role === 'owner';
+                      return (
+                        <div key={member.userId} className='flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-3'>
+                          <div>
+                            <p className='text-sm font-semibold text-slate-900'>{member.name}</p>
+                            <p className='text-xs text-slate-500'>{member.email}</p>
+                          </div>
+                          <div className='flex items-center gap-2'>
+                            <Badge className={isOwner ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-700'}>{member.role}</Badge>
+                            {workspacePermissions.canRemoveMembers && !isOwner && (
+                              <Button
+                                type='button'
+                                variant='outline'
+                                size='sm'
+                                className='border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700'
+                                onClick={() => removeMember(member.userId)}
+                              >
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {workspacePermissions.canApproveMembers && (
+                <div>
+                  <p className='mb-2 text-sm font-semibold text-slate-800'>Pending Requests</p>
+                  {isMembersLoading ? (
+                    <p className='text-sm text-slate-500'>Loading requests...</p>
+                  ) : workspacePendingMembers.length === 0 ? (
+                    <p className='text-sm text-slate-500'>No pending requests.</p>
+                  ) : (
+                    <div className='space-y-2'>
+                      {workspacePendingMembers.map((pending) => (
+                        <div key={pending.userId} className='flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50/50 p-3'>
+                          <div>
+                            <p className='text-sm font-semibold text-slate-900'>{pending.name}</p>
+                            <p className='text-xs text-slate-500'>{pending.email}</p>
+                          </div>
+                          <div className='flex items-center gap-2'>
+                            <Button type='button' size='sm' variant='outline' className='border-emerald-200 text-emerald-700 hover:bg-emerald-50' onClick={() => approvePendingMember(pending.userId)}>
+                              Approve
+                            </Button>
+                            <Button type='button' size='sm' variant='outline' className='border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700' onClick={() => rejectPendingMember(pending.userId)}>
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {isHistoryModalOpen && selectedWorkspace && createPortal(
+        <div className='fixed inset-0 z-[85] flex items-center justify-center bg-slate-900/35 px-2 py-4 backdrop-blur-[2px] md:px-6'>
+          <div className='h-[82vh] w-[min(900px,100%)] overflow-hidden rounded-2xl bg-white/98'>
+            <div className='flex items-center justify-between border-b border-violet-100 px-4 py-3'>
+              <div>
+                <p className='text-xs font-semibold uppercase tracking-[0.18em] text-violet-500'>Workspace History</p>
+                <p className='text-base font-bold text-slate-900'>{selectedWorkspace.name}</p>
+              </div>
+              <div className='flex items-center gap-2'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='border-violet-200 bg-white hover:bg-violet-50'
+                  onClick={loadWorkspaceHistory}
+                  disabled={isHistoryLoading}
+                >
+                  {isHistoryLoading ? 'Refreshing...' : 'Refresh'}
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  onClick={() => setIsHistoryModalOpen(false)}
+                  className='text-slate-600 hover:bg-violet-100 hover:text-violet-700'
+                >
+                  <X className='size-5' />
+                </Button>
+              </div>
+            </div>
+
+            <div className='h-[calc(82vh-68px)] space-y-3 overflow-y-auto p-4'>
+              {isHistoryLoading ? (
+                <p className='text-sm text-slate-500'>Loading activity history...</p>
+              ) : workspaceActivities.length === 0 ? (
+                <p className='text-sm text-slate-500'>No activity yet in this workspace.</p>
+              ) : (
+                <div className='space-y-2'>
+                  {workspaceActivities.map((activity) => (
+                    <div key={activity._id} className='rounded-lg border border-slate-200 bg-white p-3'>
+                      <div className='flex flex-wrap items-center gap-2'>
+                        <Badge className='bg-violet-100 text-violet-700'>{activity.type}</Badge>
+                        <p className='text-xs text-slate-500'>{formatActivityDateTime(activity.createdAt)}</p>
+                      </div>
+                      <p className='mt-1 text-sm font-medium text-slate-900'>{activity.message}</p>
+                      <p className='mt-1 text-xs text-slate-500'>By: {activity.actorName || activity.actorEmail || 'System'}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>,

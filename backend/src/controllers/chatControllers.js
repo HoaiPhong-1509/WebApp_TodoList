@@ -55,6 +55,45 @@ const toUserSummary = (userDoc) => ({
   email: userDoc.email,
 });
 
+const getUnreadCountForUser = (conversationDoc, userId) => {
+  const userKey = userId.toString();
+  const unreadCounts = conversationDoc.unreadCounts;
+
+  if (!unreadCounts) {
+    return 0;
+  }
+
+  if (typeof unreadCounts.get === "function") {
+    return Number(unreadCounts.get(userKey) || 0);
+  }
+
+  return Number(unreadCounts[userKey] || 0);
+};
+
+const ensureUnreadCountMap = (conversationDoc) => {
+  if (!conversationDoc.unreadCounts || typeof conversationDoc.unreadCounts.get !== "function") {
+    conversationDoc.unreadCounts = new Map(Object.entries(conversationDoc.unreadCounts || {}));
+  }
+
+  return conversationDoc.unreadCounts;
+};
+
+const applyUnreadCountsAfterSend = (conversationDoc, senderId) => {
+  const unreadCounts = ensureUnreadCountMap(conversationDoc);
+  const senderKey = senderId.toString();
+
+  conversationDoc.participants.forEach((participant) => {
+    const participantKey = (participant._id || participant).toString();
+
+    if (participantKey === senderKey) {
+      unreadCounts.set(participantKey, 0);
+      return;
+    }
+
+    unreadCounts.set(participantKey, Number(unreadCounts.get(participantKey) || 0) + 1);
+  });
+};
+
 const toConversationResponse = (conversationDoc, currentUserId) => {
   const me = currentUserId.toString();
   const participants = (conversationDoc.participants || []).map(toUserSummary);
@@ -79,6 +118,7 @@ const toConversationResponse = (conversationDoc, currentUserId) => {
     },
     participants,
     lastMessage: conversationDoc.lastMessage || null,
+    unreadCount: getUnreadCountForUser(conversationDoc, currentUserId),
     updatedAt: conversationDoc.updatedAt,
     createdAt: conversationDoc.createdAt,
   };
@@ -191,6 +231,10 @@ export const createDirectConversation = async (req, res) => {
         participants: [req.user._id, peerUser._id],
         deletedFor: [],
         createdBy: req.user._id,
+        unreadCounts: {
+          [req.user._id.toString()]: 0,
+          [peerUser._id.toString()]: 0,
+        },
       });
 
       conversation = await conversation.populate("participants", "_id name email");
@@ -235,6 +279,10 @@ export const createGroupConversation = async (req, res) => {
       participants: participantIds,
       deletedFor: [],
       createdBy: req.user._id,
+      unreadCounts: participantIds.reduce((acc, participantId) => {
+        acc[participantId] = 0;
+        return acc;
+      }, {}),
     });
 
     await conversation.populate("participants", "_id name email");
@@ -276,6 +324,10 @@ export const addConversationMembers = async (req, res) => {
     }
 
     conversation.participants = nextParticipantIds;
+    const unreadCounts = ensureUnreadCountMap(conversation);
+    nextParticipantIds.forEach((participantId) => {
+      unreadCounts.set(participantId.toString(), Number(unreadCounts.get(participantId.toString()) || 0));
+    });
     conversation.deletedFor = (conversation.deletedFor || []).filter(
       (deletedUserId) => nextParticipantIds.includes(deletedUserId.toString())
     );
@@ -304,6 +356,13 @@ export const getConversationMessages = async (req, res) => {
 
     if (!conversation) {
       return res.status(404).json({ message: "Conversation not found" });
+    }
+
+    const meId = req.user._id.toString();
+    const unreadCounts = ensureUnreadCountMap(conversation);
+    if (Number(unreadCounts.get(meId) || 0) > 0) {
+      unreadCounts.set(meId, 0);
+      await conversation.save();
     }
 
     const query = {
@@ -355,6 +414,7 @@ export const createMessage = async (req, res) => {
       sender: req.user._id,
       createdAt: message.createdAt,
     };
+    applyUnreadCountsAfterSend(conversation, req.user._id);
     conversation.deletedFor = [];
     conversation.updatedAt = new Date();
     await conversation.save();
@@ -463,6 +523,8 @@ export const leaveConversation = async (req, res) => {
     conversation.participants = conversation.participants.filter(
       (participant) => participant._id.toString() !== req.user._id.toString()
     );
+    const unreadCounts = ensureUnreadCountMap(conversation);
+    unreadCounts.delete(req.user._id.toString());
     conversation.deletedFor = (conversation.deletedFor || []).filter(
       (deletedUserId) => deletedUserId.toString() !== req.user._id.toString()
     );

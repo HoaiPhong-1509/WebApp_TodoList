@@ -1,0 +1,13 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "netstat": true,
+        "/^node --check backend/src/controllers/tasksControllers\\.js; node --check backend/src/services/groqAdvisorService\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --check backend/src/controllers/chatControllers\\.js; node --check backend/src/socket/chatSocket\\.js; node --check backend/src/models/Conversation\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

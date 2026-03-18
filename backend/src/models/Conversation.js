@@ -48,6 +48,11 @@ const conversationSchema = new mongoose.Schema(
         default: null,
       },
     },
+    unreadCounts: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
   },
   {
     timestamps: true,

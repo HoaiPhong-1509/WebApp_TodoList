@@ -37,14 +37,14 @@ const StatsAndFilters = ({
       </div>
 
       {/* Bộ lọc */}
-      <div className='flex flex-col gap-2 sm:flex-row sm:justify-end'>
+      <div className='grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-row sm:justify-end'>
         {
           Object.keys(FilterType).map((type) => (
             <Button
               key={type}
               variant={filter === type ? 'gradient' : 'ghost'}
               size='sm'
-              className='capitalize'
+              className='w-full justify-start capitalize sm:w-auto sm:justify-center'
               onClick={() => setFilter(type)}
             >
               <Filter className = 'size-4' />

@@ -105,12 +105,12 @@ const buildGroqPrompt = ({ workspaceName, metrics, activitySeries, tasks }) => {
     activitySeries: compactActivity,
     tasks: compactTasks,
     instruction: {
-      objective: "Tao khuyen nghi nang suat dua tren du lieu workflow task.",
+      objective: "Tạo khuyến nghị năng suất dựa trên dữ liệu workflow task.",
       constraints: [
-        "Chi su dung du lieu duoc cung cap, khong tu dat them metric.",
-        "Toan bo noi dung title/advice/reason phai viet bang tieng Viet.",
-        "Khuyen nghi phai cu the, thuc te, co the hanh dong ngay.",
-        "Giu giong van gon, ro, mang tinh khoa hoc va ho tro.",
+        "Chỉ sử dụng dữ liệu được cung cấp, không tự đặt thêm metric.",
+        "Toàn bộ nội dung title/advice/reason phải viết bằng tiếng Việt có dấu đầy đủ.",
+        "Khuyến nghị phải cụ thể, thực tế, có thể hành động ngay.",
+        "Giữ giọng văn gọn, rõ, mang tính khoa học và hỗ trợ.",
       ],
       outputSchema: {
         recommendations: [
@@ -150,7 +150,7 @@ export const generateGroqTaskRecommendations = async ({ workspaceName, metrics, 
           {
             role: "system",
             content:
-              "Ban la co van work science. Bat buoc tra ve JSON hop le duy nhat, khong markdown, khong them key ngoai schema, va noi dung recommendation phai bang tieng Viet.",
+              "Bạn là cố vấn work science. Bắt buộc trả về JSON hợp lệ duy nhất, không markdown, không thêm key ngoài schema, và nội dung recommendation phải bằng tiếng Việt có dấu đầy đủ.",
           },
           {
             role: "user",
