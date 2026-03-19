@@ -777,7 +777,7 @@ const ChatPanel = () => {
         className="flex items-end gap-3"
       >
         {isAiOpen ? (
-          <div className="absolute bottom-14 right-[10.75rem] z-[10000] flex h-[28rem] w-[22rem] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card shadow-2xl">
+          <div className="fixed left-1/2 top-1/2 z-[10000] flex max-h-[80vh] w-[calc(100%-2rem)] max-w-[22rem] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-border/80 bg-card shadow-2xl md:fixed md:left-auto md:top-auto md:right-[1rem] md:bottom-14 md:translate-none md:w-[22rem] md:h-[28rem]">
             <div className="flex items-center justify-between border-b px-3 py-2">
               <div>
                 <h3 className="text-sm font-semibold">AI Advisor</h3>

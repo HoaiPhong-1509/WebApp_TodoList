@@ -174,7 +174,7 @@ export const Header = ({
           </PopoverTrigger>
           <PopoverContent
             align='end'
-            className='w-[min(94vw,420px)] border-white/80 bg-white/75 p-3 shadow-xl backdrop-blur-xl supports-[backdrop-filter]:bg-white/65'
+            className='sm:w-[min(94vw,420px)] w-[calc(100%-2rem)] border-white/80 bg-white/75 p-3 shadow-xl backdrop-blur-xl supports-[backdrop-filter]:bg-white/65'
           >
             <div className='space-y-3'>
               <div>
@@ -243,7 +243,7 @@ export const Header = ({
           </PopoverTrigger>
           <PopoverContent
             align='end'
-            className='w-[360px] border-white/80 bg-white/75 p-3 shadow-xl backdrop-blur-xl supports-[backdrop-filter]:bg-white/65'
+            className='sm:w-[360px] w-[calc(100%-2rem)] border-white/80 bg-white/75 p-3 shadow-xl backdrop-blur-xl supports-[backdrop-filter]:bg-white/65'
           >
             <div className='flex items-center justify-between gap-2'>
               <div>

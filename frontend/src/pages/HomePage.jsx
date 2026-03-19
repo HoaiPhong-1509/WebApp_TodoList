@@ -1039,7 +1039,7 @@ const HomePage = () => {
                 <CardDescription>
                   Khuyến nghị được tạo từ dữ liệu task trên tất cả workspace (7 ngày gần nhất).
                 </CardDescription>
-                <Badge className='w-fit border-0 bg-slate-200 text-slate-700'>Source: {aiProviderLabel}</Badge>
+                {/* <Badge className='w-fit border-0 bg-slate-200 text-slate-700'>Source: {aiProviderLabel}</Badge> */}
               </CardHeader>
               <CardContent className='space-y-4'>
                 <div className='grid grid-cols-3 gap-2 text-center'>

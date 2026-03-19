@@ -296,7 +296,7 @@ const buildAssistantContextInstruction = (assistantContext) => {
   const { intent, inviteCodeCandidate, workspaceState } = assistantContext;
 
   return [
-    "Bạn là trợ lý trong ứng dụng Todo Workspace.",
+    "Bạn là trợ lý trong ứng dụng Task Management App.",
     "Luôn trả lời theo dữ liệu ngữ cảnh được cấp, không dùng câu trả lời rập khuôn.",
     "Nếu người dùng hỏi thao tác trong hệ thống, hãy đưa các bước ngắn, đúng theo workflow thật.",
     "Nếu thiếu thông tin, hỏi thêm tối đa 1 câu làm rõ.",
